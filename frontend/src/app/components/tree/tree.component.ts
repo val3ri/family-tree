@@ -1551,8 +1551,48 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
   }
 
   centerAll(): void {
+    if (!this.liveNodes || this.liveNodes.length === 0) return;
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    this.liveNodes.forEach(node => {
+      const x = node.x ?? 0;
+      const y = node.y ?? 0;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    });
+
     const el = this.svgRef.nativeElement;
-    this.svg.transition().duration(400)
-      .call(this.zoom.transform, d3.zoomIdentity.translate(el.clientWidth / 2, el.clientHeight / 3).scale(0.8));
+    const w = el.clientWidth || 800;
+    const h = el.clientHeight || 600;
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    const graphW = maxX - minX + 160;
+    const graphH = maxY - minY + 160;
+
+    let scale = Math.min(w / graphW, h / graphH);
+    scale = Math.max(0.4, Math.min(1.2, scale));
+
+    const tx = w / 2 - scale * cx;
+    const ty = h / 2 - scale * cy;
+
+    this.svg.transition().duration(500)
+      .call(this.zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale))
+      .on('end', () => this.updateGenLabels());
+  }
+
+  zoomIn(): void {
+    this.svg.transition().duration(300).call(this.zoom.scaleBy, 1.3);
+  }
+
+  zoomOut(): void {
+    this.svg.transition().duration(300).call(this.zoom.scaleBy, 1 / 1.3);
   }
 }

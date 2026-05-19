@@ -32,6 +32,7 @@ interface RelationRow {
   template: `
     @if (person) {
       <div class="panel">
+        <div class="drag-handle"></div>
         <button class="close-btn" (click)="closed.emit()">✕</button>
 
         <div class="photo-wrap">
@@ -426,12 +427,40 @@ interface RelationRow {
     .btn-edit { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
     .btn-delete { background: #ffeaea; color: #c0392b; }
 
+    .drag-handle {
+      display: none;
+    }
+
+    @keyframes slideUp {
+      from {
+        transform: translateY(100%);
+      }
+      to {
+        transform: translateY(0);
+      }
+    }
+
     @media (max-width: 600px) {
       .panel {
         position: fixed; bottom: 0; left: 0; right: 0;
         width: 100%; height: 65vh;
-        border-radius: 20px 20px 0 0;
-        box-shadow: 0 -4px 20px rgba(0,0,0,0.12);
+        border-radius: 24px 24px 0 0;
+        box-shadow: 0 -8px 30px rgba(0,0,0,0.2);
+        z-index: 100;
+        animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      .drag-handle {
+        display: block;
+        width: 40px;
+        height: 5px;
+        background: var(--border);
+        border-radius: 3px;
+        margin: -10px auto 12px auto;
+        flex-shrink: 0;
+      }
+      .close-btn {
+        top: 16px;
+        right: 20px;
       }
     }
   `]

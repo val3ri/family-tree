@@ -19,13 +19,15 @@ import { LegendComponent } from '../legend/legend.component';
   template: `
     <div class="page">
       <header class="toolbar">
-        <button class="btn-back" (click)="router.navigate(['/'])">← Назад</button>
-        <span class="title">{{ focusedPerson?.first_name }} {{ focusedPerson?.last_name }}</span>
+        <div class="toolbar-left">
+          <button class="btn-back" (click)="router.navigate(['/'])">← Назад</button>
+          <span class="title">{{ focusedPerson?.first_name }} {{ focusedPerson?.last_name }}</span>
+        </div>
         <div class="actions">
           <button class="btn-export" (click)="exportPng()" title="Експортирай като PNG">⬇ PNG</button>
           <button class="btn-theme" (click)="theme.toggle()" [title]="theme.isDark ? 'Светла тема' : 'Тъмна тема'">{{ theme.isDark ? '☀️' : '🌙' }}</button>
-          <button class="btn-secondary" (click)="showRelationForm = true">+ Добави връзка</button>
-          <button class="btn-primary" (click)="openAddForm()">+ Добави човек</button>
+          <button class="btn-secondary" (click)="showRelationForm = true">+ Връзка</button>
+          <button class="btn-primary" (click)="openAddForm()">+ Човек</button>
         </div>
       </header>
 
@@ -41,10 +43,18 @@ import { LegendComponent } from '../legend/legend.component';
           } @else {
             <div class="empty">Зареждане...</div>
           }
+          
+          <div class="zoom-controls">
+            <button class="btn-zoom" (click)="treeComponent?.zoomIn()" title="Увеличаване">+</button>
+            <button class="btn-zoom" (click)="treeComponent?.zoomOut()" title="Намаляване">−</button>
+            <button class="btn-zoom" (click)="treeComponent?.centerAll()" title="Центриране">⌖</button>
+          </div>
+
           <app-legend></app-legend>
         </main>
 
         @if (selectedPerson) {
+          <div class="panel-backdrop" (click)="selectedPerson = null"></div>
           <app-person-panel
             [person]="selectedPerson"
             [allPersons]="allPersons"
@@ -93,19 +103,58 @@ import { LegendComponent } from '../legend/legend.component';
   styles: [`
     .page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
     .toolbar {
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
       padding: 0 20px; height: 56px; background: var(--surface);
       box-shadow: 0 2px 8px rgba(0,0,0,0.08); flex-shrink: 0; z-index: 10;
     }
-    .btn-back { background: none; border: none; cursor: pointer; font-size: 15px; color: #4A90D9; padding: 6px; }
-    .title { flex: 1; font-weight: 700; font-size: 17px; color: var(--text); }
-    .actions { display: flex; gap: 10px; }
+    .toolbar-left {
+      display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;
+    }
+    .btn-back { background: none; border: none; cursor: pointer; font-size: 15px; color: #4A90D9; padding: 6px; flex-shrink: 0; }
+    .title { font-weight: 700; font-size: 17px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .actions { display: flex; gap: 10px; flex-shrink: 0; }
     .btn-primary { padding: 8px 16px; background: #4A90D9; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
     .btn-secondary { padding: 8px 16px; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 14px; }
     .btn-export { padding: 8px 14px; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 14px; }
     .btn-theme { padding: 8px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 16px; line-height: 1; }
     .content-wrap { flex: 1; display: flex; overflow: hidden; }
     .canvas-wrap { flex: 1; position: relative; background: var(--bg); }
+    .zoom-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 50;
+    }
+    .btn-zoom {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      transition: all 0.2s ease;
+      user-select: none;
+      padding: 0;
+    }
+    .btn-zoom:hover {
+      background: var(--surface2);
+      border-color: #4A90D9;
+      color: #4A90D9;
+      transform: scale(1.05);
+    }
+    .btn-zoom:active {
+      transform: scale(0.95);
+    }
     .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
     .lightbox {
       position: fixed; inset: 0; background: rgba(0,0,0,0.9);
@@ -125,6 +174,51 @@ import { LegendComponent } from '../legend/legend.component';
       cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 1001;
     }
     .lightbox-close:hover { background: rgba(255,255,255,0.3); }
+
+    .panel-backdrop {
+      display: none;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @media (max-width: 600px) {
+      .toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        height: auto;
+        padding: 10px 16px;
+        gap: 8px;
+      }
+      .toolbar-left {
+        width: 100%;
+        justify-content: space-between;
+      }
+      .actions {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 6px;
+      }
+      .btn-primary, .btn-secondary, .btn-export, .btn-theme {
+        padding: 6px 10px;
+        font-size: 12px;
+        flex: 1;
+        justify-content: center;
+        text-align: center;
+      }
+      .btn-theme {
+        flex: 0 0 auto;
+      }
+      .panel-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(2px);
+        z-index: 90;
+        animation: fadeIn 0.2s ease-out forwards;
+      }
+    }
   `]
 })
 export class TreePageComponent implements OnInit {
