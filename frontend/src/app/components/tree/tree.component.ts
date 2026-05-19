@@ -407,6 +407,18 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
       }
     });
 
+    // Detect nodes that appear in more than one couple unit (multiple marriages).
+    const allSpouseIds = new Map<string, string[]>();
+    coupleUnits.forEach(cu => {
+      if (!allSpouseIds.has(cu.aId)) allSpouseIds.set(cu.aId, []);
+      if (!allSpouseIds.has(cu.bId)) allSpouseIds.set(cu.bId, []);
+      allSpouseIds.get(cu.aId)!.push(cu.bId);
+      allSpouseIds.get(cu.bId)!.push(cu.aId);
+    });
+    const multiSpouseIds = new Set(
+      [...allSpouseIds.entries()].filter(([, s]) => s.length > 1).map(([id]) => id)
+    );
+
     const getParentCouple = (id: string): CoupleUnit | null => {
       const parentIds = pcEdges.filter(e => e.person_b_id === id).map(e => e.person_a_id);
       if (parentIds.length === 0) return null;
@@ -524,13 +536,19 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
       rowNodeIds.forEach(id => {
         if (seen.has(id)) return;
         const cu = coupleByPerson.get(id);
-        if (cu) {
-          seen.add(cu.aId);
-          seen.add(cu.bId);
-          units.push({ isCouple: true, aId: cu.aId, bId: cu.bId });
-        } else {
+        if (!cu || multiSpouseIds.has(id)) {
           seen.add(id);
           units.push({ isCouple: false, personId: id });
+        } else {
+          const otherId = cu.aId === id ? cu.bId : cu.aId;
+          if (seen.has(otherId) || multiSpouseIds.has(otherId)) {
+            seen.add(id);
+            units.push({ isCouple: false, personId: id });
+          } else {
+            seen.add(cu.aId);
+            seen.add(cu.bId);
+            units.push({ isCouple: true, aId: cu.aId, bId: cu.bId });
+          }
         }
       });
 
@@ -589,6 +607,29 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
           }
           return baryA - baryB;
         });
+      }
+
+      // Ensure each multi-spouse node sits between its spouses in the sequence.
+      for (let i = 0; i < units.length; i++) {
+        const u = units[i];
+        if (u.isCouple || !multiSpouseIds.has(u.personId!)) continue;
+        const msId = u.personId!;
+        const mySpouseIds = allSpouseIds.get(msId) ?? [];
+        const spouseIndices = mySpouseIds
+          .map(sid => units.findIndex((su, si) =>
+            si !== i &&
+            ((!su.isCouple && su.personId === sid) ||
+             (su.isCouple && (su.aId === sid || su.bId === sid)))
+          ))
+          .filter(idx => idx !== -1);
+        if (spouseIndices.length < 2) continue;
+        const minSp = Math.min(...spouseIndices);
+        const maxSp = Math.max(...spouseIndices);
+        if (i > minSp && i < maxSp) continue; // already between spouses
+        units.splice(i, 1);
+        const adjMin = spouseIndices.map(si => si > i ? si - 1 : si).reduce((a, b) => Math.min(a, b));
+        const adjMax = spouseIndices.map(si => si > i ? si - 1 : si).reduce((a, b) => Math.max(a, b));
+        units.splice(Math.floor((adjMin + adjMax + 1) / 2), 0, u);
       }
 
       // Orient spouses within CoupleUnits
@@ -722,14 +763,33 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
             count += 2;
           }
 
-          const cu = coupleByPerson.get(id);
-          if (cu) {
-            const spouseId = cu.aId === id ? cu.bId : cu.aId;
-            const spouseX = posX.get(spouseId);
-            if (spouseX !== undefined) {
-              const offset = cu.aId === id ? -X_GAP : X_GAP;
-              sum += (spouseX + offset) * 1.5;
+          if (multiSpouseIds.has(id)) {
+            // Pull toward the center of ALL spouses with no directional bias.
+            const mySpouseXs = (allSpouseIds.get(id) ?? [])
+              .map(sid => posX.get(sid)).filter(x => x !== undefined) as number[];
+            if (mySpouseXs.length > 0) {
+              const avg = mySpouseXs.reduce((a, b) => a + b, 0) / mySpouseXs.length;
+              sum += avg * 1.5;
               count += 1.5;
+            }
+          } else {
+            const cu = coupleByPerson.get(id);
+            if (cu) {
+              const spouseId = cu.aId === id ? cu.bId : cu.aId;
+              const spouseX = posX.get(spouseId);
+              if (spouseX !== undefined) {
+                if (multiSpouseIds.has(spouseId)) {
+                  // Spouse has multiple marriages: stay on whichever side we currently are.
+                  const myX = posX.get(id)!;
+                  const offset = myX <= spouseX ? -X_GAP : X_GAP;
+                  sum += (spouseX + offset) * 1.5;
+                  count += 1.5;
+                } else {
+                  const offset = cu.aId === id ? -X_GAP : X_GAP;
+                  sum += (spouseX + offset) * 1.5;
+                  count += 1.5;
+                }
+              }
             }
           }
 
