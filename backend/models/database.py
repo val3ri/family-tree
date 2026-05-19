@@ -3,7 +3,7 @@ import enum
 from datetime import date, datetime
 from sqlalchemy import (
     create_engine, Column, String, Text, Date, DateTime,
-    Enum, ForeignKey, Integer, event
+    Enum, ForeignKey, Integer, Boolean, event
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
@@ -39,6 +39,12 @@ class Person(Base):
     generation_hint = Column(Integer, nullable=True)
     bio = Column(Text, nullable=True)
     photo_url = Column(String(500), nullable=True)
+    birth_place = Column(String(200), nullable=True)
+    birth_time = Column(String(100), nullable=True)
+    death_place = Column(String(200), nullable=True)
+    education = Column(String(500), nullable=True)
+    profession = Column(String(500), nullable=True)
+    residence = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     photos = relationship(
@@ -82,6 +88,9 @@ class Relation(Base):
     person_a_id = Column(UUID(as_uuid=True), ForeignKey("persons.id"), nullable=False)
     person_b_id = Column(UUID(as_uuid=True), ForeignKey("persons.id"), nullable=False)
     relation_type = Column(Enum(RelationType), nullable=False)
+    marriage_date = Column(Date, nullable=True)
+    marriage_place = Column(String(200), nullable=True)
+    is_divorced = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     person_a = relationship("Person", foreign_keys=[person_a_id], back_populates="relations_as_a")

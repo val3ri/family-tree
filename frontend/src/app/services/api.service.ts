@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { Person, PersonCreate, PersonUpdate, PersonPhoto } from '../models/person.model';
-import { Relation, RelationCreate, GraphData } from '../models/relation.model';
+import { Relation, RelationCreate, RelationUpdate, GraphData } from '../models/relation.model';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -63,6 +63,10 @@ export class ApiService {
 
   createRelation(data: RelationCreate): Observable<Relation> {
     return this.http.post<Relation>(`${this.base}/relations/`, data);
+  }
+
+  updateRelation(id: string, data: RelationUpdate): Observable<Relation> {
+    return this.http.patch<Relation>(`${this.base}/relations/${id}`, data);
   }
 
   deleteRelation(id: string): Observable<void> {

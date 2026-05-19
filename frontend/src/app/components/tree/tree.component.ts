@@ -390,29 +390,46 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
     const coupleUnits: CoupleUnit[] = [];
     const coupleByPerson = new Map<string, CoupleUnit>();
 
+    // Use ALL SPOUSE edges (including divorced) so that children of divorced
+    // parents still get a valid couple midpoint to connect from.
     spouseEdges.forEach(e => {
       if (excluded.has(e.person_a_id) || excluded.has(e.person_b_id)) return;
       const cu: CoupleUnit = { id: `couple:${e.id}`, aId: e.person_a_id, bId: e.person_b_id };
       coupleUnits.push(cu);
-      if (!coupleByPerson.has(e.person_a_id)) coupleByPerson.set(e.person_a_id, cu);
-      if (!coupleByPerson.has(e.person_b_id)) coupleByPerson.set(e.person_b_id, cu);
+      // Active (non-divorced) marriage takes precedence as the primary couple.
+      if (!e.is_divorced) {
+        coupleByPerson.set(e.person_a_id, cu);
+        coupleByPerson.set(e.person_b_id, cu);
+      } else {
+        // Only register if not already in an active marriage
+        if (!coupleByPerson.has(e.person_a_id)) coupleByPerson.set(e.person_a_id, cu);
+        if (!coupleByPerson.has(e.person_b_id)) coupleByPerson.set(e.person_b_id, cu);
+      }
     });
 
     const getParentCouple = (id: string): CoupleUnit | null => {
-      for (const e of pcEdges.filter(e2 => e2.person_b_id === id)) {
-        const cu = coupleByPerson.get(e.person_a_id);
+      const parentIds = pcEdges.filter(e => e.person_b_id === id).map(e => e.person_a_id);
+      if (parentIds.length === 0) return null;
+      // Prefer the couple whose both members are parents of this child (correct marriage).
+      if (parentIds.length >= 2) {
+        const exact = coupleUnits.find(cu => parentIds.includes(cu.aId) && parentIds.includes(cu.bId));
+        if (exact) return exact;
+      }
+      // Fallback: first parent's registered couple.
+      for (const pid of parentIds) {
+        const cu = coupleByPerson.get(pid);
         if (cu) return cu;
       }
       return null;
     };
 
     const getCoupleChildren = (cu: CoupleUnit): string[] => {
-      const s = new Set<string>();
-      pcEdges.forEach(e => {
-        if ((e.person_a_id === cu.aId || e.person_a_id === cu.bId) && !excluded.has(e.person_b_id))
-          s.add(e.person_b_id);
-      });
-      return [...s];
+      const childrenOfA = new Set(pcEdges.filter(e => e.person_a_id === cu.aId && !excluded.has(e.person_b_id)).map(e => e.person_b_id));
+      const childrenOfB = new Set(pcEdges.filter(e => e.person_a_id === cu.bId && !excluded.has(e.person_b_id)).map(e => e.person_b_id));
+      // Children connected to BOTH parents belong to this specific marriage.
+      const shared = [...childrenOfA].filter(id => childrenOfB.has(id));
+      // Fallback for single-parent records: include all children of either partner.
+      return shared.length > 0 ? shared : [...new Set([...childrenOfA, ...childrenOfB])];
     };
 
     const getSingleChildren = (pid: string): string[] =>
@@ -829,6 +846,8 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
     edges.filter(e => e.relation_type === 'SPOUSE').forEach(e => {
       const a = nodeMap.get(e.person_a_id);
       const b = nodeMap.get(e.person_b_id);
+      // Create marriage nodes for ALL couples (active + divorced) so children
+      // of divorced parents connect from the correct midpoint between both parents.
       if (a && b) {
         marriageNodes.push({
           id: `marriage-${e.id}`,
@@ -855,10 +874,11 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
   private drawEdges(edges: GraphEdge[], nodes: GraphNode[], marriageNodes: MarriageNode[]): void {
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
-    const parentToMarriage = new Map<string, MarriageNode>();
+    // Pair-based lookup so a parent with multiple marriages maps to the correct one per child.
+    const marriageByPair = new Map<string, MarriageNode>();
     marriageNodes.forEach(m => {
-      parentToMarriage.set(m.spouseAId, m);
-      parentToMarriage.set(m.spouseBId, m);
+      marriageByPair.set(`${m.spouseAId}:${m.spouseBId}`, m);
+      marriageByPair.set(`${m.spouseBId}:${m.spouseAId}`, m);
     });
 
     const childToParents = new Map<string, string[]>();
@@ -876,12 +896,32 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
       const color = RELATION_COLORS[edge.relation_type] ?? '#999';
 
       if (edge.relation_type === 'SPOUSE') {
-        this.g.append('path')
-          .datum(edge)
-          .attr('class', 'spouse-line')
-          .attr('d', spousePath(a.x ?? 0, a.y ?? 0, b.x ?? 0, b.y ?? 0))
-          .attr('stroke', color).attr('stroke-width', 2)
-          .attr('stroke-dasharray', '6,3').attr('fill', 'none');
+        const mn = marriageNodes.find(m =>
+          (m.spouseAId === edge.person_a_id && m.spouseBId === edge.person_b_id) ||
+          (m.spouseAId === edge.person_b_id && m.spouseBId === edge.person_a_id)
+        );
+        const isDiv = (edge as any).is_divorced;
+        const stroke = isDiv ? '#bbb' : '#E05C5C';
+        const width = isDiv ? 1.5 : 2;
+        const dash = isDiv ? '6,4' : 'none';
+        const opacity = isDiv ? 0.55 : 1;
+        if (mn) {
+          // Draw through marriage node midpoint
+          this.g.append('path').datum(edge).attr('class', 'spouse-line')
+            .attr('d', spousePath(a.x ?? 0, a.y ?? 0, mn.x, mn.y))
+            .attr('stroke', stroke).attr('stroke-width', width)
+            .attr('stroke-dasharray', dash).attr('fill', 'none').attr('stroke-opacity', opacity);
+          this.g.append('path').datum(edge).attr('class', 'spouse-line')
+            .attr('d', spousePath(mn.x, mn.y, b.x ?? 0, b.y ?? 0))
+            .attr('stroke', stroke).attr('stroke-width', width)
+            .attr('stroke-dasharray', dash).attr('fill', 'none').attr('stroke-opacity', opacity);
+        } else {
+          this.g.append('path').datum(edge).attr('class', 'spouse-line')
+            .attr('d', spousePath(a.x ?? 0, a.y ?? 0, b.x ?? 0, b.y ?? 0))
+            .attr('stroke', stroke).attr('stroke-width', width)
+            .attr('stroke-dasharray', dash).attr('fill', 'none').attr('stroke-opacity', opacity);
+        }
+
 
       } else if (edge.relation_type === 'PARENT_CHILD') {
         const childId = edge.person_b_id;
@@ -892,9 +932,7 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
         const parents = childToParents.get(childId) ?? [];
 
         const marriage = parents.length === 2
-          ? (parentToMarriage.get(parents[0])?.spouseAId === parents[1] ||
-             parentToMarriage.get(parents[0])?.spouseBId === parents[1]
-             ? parentToMarriage.get(parents[0]) : null)
+          ? (marriageByPair.get(`${parents[0]}:${parents[1]}`) ?? null)
           : null;
 
         const src = marriage ?? nodeMap.get(parents[0])!;
@@ -916,7 +954,17 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
   }
 
   private drawMarriageNodes(marriageNodes: MarriageNode[]): void {
+    // Only draw the visible marriage node circle for ACTIVE (non-divorced) couples.
+    // The full marriageNodes array still exists for geometry/child-line routing.
+    const activeSpouseIds = new Set(
+      (this.graphData?.edges ?? [])
+        .filter((e: GraphEdge) => e.relation_type === 'SPOUSE' && !e.is_divorced)
+        .flatMap((e: GraphEdge) => [`${e.person_a_id}_${e.person_b_id}`, `${e.person_b_id}_${e.person_a_id}`])
+    );
     marriageNodes.forEach(m => {
+      const key1 = `${m.spouseAId}_${m.spouseBId}`;
+      const key2 = `${m.spouseBId}_${m.spouseAId}`;
+      if (!activeSpouseIds.has(key1) && !activeSpouseIds.has(key2)) return; // divorced — skip circle
       this.g.append('circle')
         .datum(m)
         .attr('class', 'marriage-node')
@@ -950,10 +998,10 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
       .attr('cx', d => d.x)
       .attr('cy', d => d.y);
 
-    const parentToMarriage = new Map<string, MarriageNode>();
+    const marriageByPair = new Map<string, MarriageNode>();
     marriageNodes.forEach(m => {
-      parentToMarriage.set(m.spouseAId, m);
-      parentToMarriage.set(m.spouseBId, m);
+      marriageByPair.set(`${m.spouseAId}:${m.spouseBId}`, m);
+      marriageByPair.set(`${m.spouseBId}:${m.spouseAId}`, m);
     });
 
     const childToParents = new Map<string, string[]>();
@@ -969,9 +1017,7 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
           if (!child) return '';
           const parents = childToParents.get(d.childId) ?? [];
           const marriage = parents.length === 2
-            ? (parentToMarriage.get(parents[0])?.spouseAId === parents[1] ||
-               parentToMarriage.get(parents[0])?.spouseBId === parents[1]
-               ? parentToMarriage.get(parents[0]) : null)
+            ? (marriageByPair.get(`${parents[0]}:${parents[1]}`) ?? null)
             : null;
           const src = marriage ?? nodeMap.get(parents[0]);
           if (!src) return '';

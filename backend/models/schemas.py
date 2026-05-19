@@ -12,6 +12,12 @@ class PersonBase(BaseModel):
     death_date: Optional[date] = None
     generation_hint: Optional[int] = None
     bio: Optional[str] = None
+    birth_place: Optional[str] = None
+    birth_time: Optional[str] = None
+    death_place: Optional[str] = None
+    education: Optional[str] = None
+    profession: Optional[str] = None
+    residence: Optional[str] = None
 
 
 class PersonCreate(PersonBase):
@@ -47,10 +53,19 @@ class RelationBase(BaseModel):
     person_a_id: UUID
     person_b_id: UUID
     relation_type: RelationType
+    marriage_date: Optional[date] = None
+    marriage_place: Optional[str] = None
+    is_divorced: bool = False
 
 
 class RelationCreate(RelationBase):
     pass
+
+
+class RelationUpdate(BaseModel):
+    marriage_date: Optional[date] = None
+    marriage_place: Optional[str] = None
+    is_divorced: bool = False
 
 
 class RelationResponse(RelationBase):
@@ -76,6 +91,7 @@ class GraphEdge(BaseModel):
     person_a_id: UUID
     person_b_id: UUID
     relation_type: RelationType
+    is_divorced: bool = False
 
 
 class GraphResponse(BaseModel):

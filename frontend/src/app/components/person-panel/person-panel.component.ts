@@ -2,7 +2,7 @@ import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, Chang
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Person, PersonPhoto } from '../../models/person.model';
-import { Relation, RelationType } from '../../models/relation.model';
+import { Relation, RelationType, RelationUpdate } from '../../models/relation.model';
 import { ApiService } from '../../services/api.service';
 
 const RELATION_LABELS: Record<RelationType, string> = {
@@ -56,6 +56,53 @@ interface RelationRow {
               Починал на {{ calcAge(person.birth_date, person.death_date) }} г. / {{ calcDays(person.birth_date, person.death_date) }} дни
             } @else {
               {{ calcAge(person.birth_date) }} години / {{ calcDays(person.birth_date) }} дни
+            }
+          </div>
+        }
+
+        @if (person.birth_place || person.birth_time || person.death_place) {
+          <div class="info-group">
+            @if (person.birth_place || person.birth_time) {
+              <div class="info-item">
+                <span class="info-label">👶 Раждане</span>
+                <span class="info-val">
+                  @if (person.birth_time) {
+                    <span>в {{ person.birth_time }} ч.</span>
+                  }
+                  @if (person.birth_place) {
+                    <span>{{ person.birth_time ? ', ' : '' }}{{ person.birth_place }}</span>
+                  }
+                </span>
+              </div>
+            }
+            @if (person.death_place) {
+              <div class="info-item">
+                <span class="info-label">🕯️ Място на смъртта</span>
+                <span class="info-val">{{ person.death_place }}</span>
+              </div>
+            }
+          </div>
+        }
+
+        @if (person.education || person.profession || person.residence) {
+          <div class="bio-details">
+            @if (person.education) {
+              <div class="bio-detail-item">
+                <span class="detail-icon">🎓</span>
+                <span class="detail-text" title="Образование">{{ person.education }}</span>
+              </div>
+            }
+            @if (person.profession) {
+              <div class="bio-detail-item">
+                <span class="detail-icon">💼</span>
+                <span class="detail-text" title="Професия / Занаят">{{ person.profession }}</span>
+              </div>
+            }
+            @if (person.residence) {
+              <div class="bio-detail-item">
+                <span class="detail-icon">📍</span>
+                <span class="detail-text" title="Местоживеене">{{ person.residence }}</span>
+              </div>
             }
           </div>
         }
@@ -125,6 +172,24 @@ interface RelationRow {
                 </select>
               </div>
             }
+            @if (newRelType === 'SPOUSE') {
+              <div class="rel-field-row">
+                <div class="rel-field">
+                  <label class="rel-field-label">Дата на брак</label>
+                  <input type="date" [(ngModel)]="newMarriageDate" />
+                </div>
+                <div class="rel-field">
+                  <label class="rel-field-label">Място на брак</label>
+                  <input [(ngModel)]="newMarriagePlace" placeholder="гр. София" />
+                </div>
+              </div>
+              <div class="rel-field">
+                <label class="divorce-check">
+                  <input type="checkbox" [(ngModel)]="newIsDivorced" />
+                  Разведени / Разделени
+                </label>
+              </div>
+            }
             @if (addRelError) {
               <p class="rel-error">{{ addRelError }}</p>
             }
@@ -142,11 +207,48 @@ interface RelationRow {
         } @else if (relationRows.length > 0) {
           <div class="relations-list">
             @for (row of relationRows; track row.relation.id) {
-              <div class="relation-row">
+              <div class="relation-row" [class.is-divorced]="row.relation.is_divorced">
                 <span class="rel-dot" [style.background]="row.color"></span>
                 <div class="rel-info">
-                  <span class="rel-name">{{ row.otherPerson.first_name }} {{ row.otherPerson.last_name }}</span>
+                  <div class="rel-name-row">
+                    <span class="rel-name">{{ row.otherPerson.first_name }} {{ row.otherPerson.last_name }}</span>
+                    @if (row.relation.is_divorced) {
+                      <span class="badge-divorced">бивш/а</span>
+                    }
+                  </div>
                   <span class="rel-type">{{ row.directionLabel }}</span>
+                  @if (row.relation.relation_type === 'SPOUSE') {
+                    @if (row.relation.marriage_date || row.relation.marriage_place) {
+                      <span class="rel-marriage">💍
+                        @if (row.relation.marriage_date) { {{ row.relation.marriage_date | date:'dd.MM.yyyy' }} }
+                        @if (row.relation.marriage_place) { , {{ row.relation.marriage_place }} }
+                      </span>
+                    }
+                    @if (editingMarriageId !== row.relation.id) {
+                      <button class="btn-edit-marriage" (click)="openMarriageEdit(row)">✏️ Детайли за брака</button>
+                    } @else {
+                      <div class="marriage-edit-form">
+                        <div class="rel-field-row">
+                          <div class="rel-field">
+                            <label class="rel-field-label">Дата на брак</label>
+                            <input type="date" [(ngModel)]="editMarriageDate" />
+                          </div>
+                          <div class="rel-field">
+                            <label class="rel-field-label">Място</label>
+                            <input [(ngModel)]="editMarriagePlace" placeholder="гр. София" />
+                          </div>
+                        </div>
+                        <label class="divorce-check">
+                          <input type="checkbox" [(ngModel)]="editIsDivorced" />
+                          Разведени / Разделени
+                        </label>
+                        <div class="rel-form-actions">
+                          <button class="btn-rel-cancel" (click)="closeMarriageEdit()">Откажи</button>
+                          <button class="btn-rel-save" (click)="saveMarriageEdit(row)">Запази</button>
+                        </div>
+                      </div>
+                    }
+                  }
                 </div>
                 <button class="btn-rel-delete" (click)="deleteRelation(row)" title="Изтрий връзката">✕</button>
               </div>
@@ -184,6 +286,18 @@ interface RelationRow {
     h2 { text-align: center; margin: 0; font-size: 18px; color: var(--text); }
     .dates { text-align: center; color: var(--text-muted); font-size: 13px; }
     .age { text-align: center; color: var(--text-muted); font-size: 12px; margin-top: -6px; }
+    .info-group {
+      background: var(--surface2); border-radius: 8px;
+      padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+      margin-top: 4px; border: 1px solid var(--border);
+    }
+    .info-item { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+    .info-label { font-size: 10px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .info-val { color: var(--text); line-height: 1.4; }
+    .bio-details { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; border-left: 2px solid var(--border); padding-left: 10px; }
+    .bio-detail-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
+    .detail-icon { font-size: 16px; flex-shrink: 0; }
+    .detail-text { line-height: 1.4; }
     .bio { color: var(--text); font-size: 14px; line-height: 1.5; }
 
     .section-title { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -216,6 +330,16 @@ interface RelationRow {
       background: #4A90D9; color: #fff; font-size: 12px; cursor: pointer;
     }
     .btn-rel-save:disabled { opacity: 0.5; cursor: not-allowed; }
+    .rel-field-row { display: flex; gap: 8px; }
+    .rel-field-row .rel-field { flex: 1; min-width: 0; }
+    .rel-field-label { font-size: 11px; color: var(--text-muted); font-weight: 600; display: block; margin-bottom: 2px; }
+    .rel-field input[type="date"], .rel-field input[type="text"], .rel-field input:not([type]) {
+      width: 100%; padding: 6px 8px; border: 1px solid var(--border);
+      border-radius: 5px; font-size: 12px; background: var(--surface); color: var(--text); outline: none; box-sizing: border-box;
+    }
+    .rel-field input:focus { border-color: #4A90D9; }
+    .divorce-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); cursor: pointer; }
+    .divorce-check input { cursor: pointer; }
 
     .gallery { display: flex; flex-wrap: wrap; gap: 8px; }
     .gallery-item {
@@ -270,13 +394,26 @@ interface RelationRow {
 
     .relations-list { display: flex; flex-direction: column; gap: 6px; }
     .relation-row {
-      display: flex; align-items: center; gap: 8px;
+      display: flex; align-items: flex-start; gap: 8px;
       padding: 7px 10px; background: var(--surface2); border-radius: 8px;
     }
-    .rel-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .rel-info { flex: 1; display: flex; flex-direction: column; }
+    .relation-row.is-divorced { opacity: 0.72; }
+    .rel-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+    .rel-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .rel-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .rel-name { font-size: 14px; color: var(--text); font-weight: 500; }
+    .badge-divorced {
+      font-size: 10px; background: #f39c12; color: #fff;
+      border-radius: 4px; padding: 1px 5px; font-weight: 600;
+    }
     .rel-type { font-size: 11px; color: var(--text-muted); }
+    .rel-marriage { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .btn-edit-marriage {
+      font-size: 11px; background: none; border: none; color: #4A90D9;
+      cursor: pointer; padding: 0; margin-top: 3px; text-align: left;
+    }
+    .btn-edit-marriage:hover { text-decoration: underline; }
+    .marriage-edit-form { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--border); }
     .btn-rel-delete {
       background: none; border: none; cursor: pointer; color: var(--text-muted);
       font-size: 14px; padding: 2px 4px; border-radius: 4px; line-height: 1;
@@ -316,9 +453,16 @@ export class PersonPanelComponent implements OnChanges {
   showAddRelation = false;
   newRelType = '';
   newRelPersonId = '';
+  newMarriageDate = '';
+  newMarriagePlace = '';
+  newIsDivorced = false;
   addRelLoading = false;
   addRelError = '';
   isDragOver = false;
+  editingMarriageId: string | null = null;
+  editMarriageDate = '';
+  editMarriagePlace = '';
+  editIsDivorced = false;
 
   constructor(private api: ApiService, private cdr: ChangeDetectorRef, private zone: NgZone) {}
 
@@ -374,6 +518,9 @@ export class PersonPanelComponent implements OnChanges {
     this.showAddRelation = false;
     this.newRelType = '';
     this.newRelPersonId = '';
+    this.newMarriageDate = '';
+    this.newMarriagePlace = '';
+    this.newIsDivorced = false;
     this.addRelError = '';
     this.addRelLoading = false;
   }
@@ -406,7 +553,12 @@ export class PersonPanelComponent implements OnChanges {
       relation_type = this.newRelType as RelationType;
     }
 
-    this.api.createRelation({ person_a_id, person_b_id, relation_type }).subscribe({
+    this.api.createRelation({
+      person_a_id, person_b_id, relation_type,
+      marriage_date: relation_type === 'SPOUSE' && this.newMarriageDate ? this.newMarriageDate : undefined,
+      marriage_place: relation_type === 'SPOUSE' && this.newMarriagePlace ? this.newMarriagePlace : undefined,
+      is_divorced: relation_type === 'SPOUSE' ? this.newIsDivorced : false,
+    }).subscribe({
       next: () => {
         this.addRelLoading = false;
         this.closeAddRelation();
@@ -494,6 +646,34 @@ export class PersonPanelComponent implements OnChanges {
     if (!confirm(`Изтрий връзката с ${name}?`)) return;
     this.api.deleteRelation(row.relation.id).subscribe(() => {
       this.relationDeleted.emit(row.relation.id);
+    });
+  }
+
+  openMarriageEdit(row: RelationRow): void {
+    this.editingMarriageId = row.relation.id;
+    this.editMarriageDate = row.relation.marriage_date ?? '';
+    this.editMarriagePlace = row.relation.marriage_place ?? '';
+    this.editIsDivorced = row.relation.is_divorced;
+    this.cdr.detectChanges();
+  }
+
+  closeMarriageEdit(): void {
+    this.editingMarriageId = null;
+    this.cdr.detectChanges();
+  }
+
+  saveMarriageEdit(row: RelationRow): void {
+    const data: RelationUpdate = {
+      marriage_date: this.editMarriageDate || undefined,
+      marriage_place: this.editMarriagePlace || undefined,
+      is_divorced: this.editIsDivorced,
+    };
+    this.api.updateRelation(row.relation.id, data).subscribe(updated => {
+      row.relation.marriage_date = updated.marriage_date;
+      row.relation.marriage_place = updated.marriage_place;
+      row.relation.is_divorced = updated.is_divorced;
+      this.editingMarriageId = null;
+      this.cdr.detectChanges();
     });
   }
 

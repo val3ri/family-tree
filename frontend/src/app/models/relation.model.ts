@@ -5,6 +5,9 @@ export interface Relation {
   person_a_id: string;
   person_b_id: string;
   relation_type: RelationType;
+  marriage_date?: string;
+  marriage_place?: string;
+  is_divorced: boolean;
   created_at: string;
 }
 
@@ -12,6 +15,15 @@ export interface RelationCreate {
   person_a_id: string;
   person_b_id: string;
   relation_type: RelationType;
+  marriage_date?: string;
+  marriage_place?: string;
+  is_divorced?: boolean;
+}
+
+export interface RelationUpdate {
+  marriage_date?: string;
+  marriage_place?: string;
+  is_divorced: boolean;
 }
 
 export interface GraphNode {
@@ -32,6 +44,7 @@ export interface GraphEdge {
   person_a_id: string;
   person_b_id: string;
   relation_type: RelationType;
+  is_divorced: boolean;
 }
 
 export interface GraphData {

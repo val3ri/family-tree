@@ -21,36 +21,76 @@ export interface PersonFormRelation {
         <h3>{{ person ? 'Редактирай' : 'Добави' }} човек</h3>
 
         <form [formGroup]="form" (ngSubmit)="onSubmit()">
-          <div class="field">
-            <label>Собствено име *</label>
-            <input formControlName="first_name" placeholder="Иван" />
-          </div>
-          <div class="field">
-            <label>Фамилия *</label>
-            <input formControlName="last_name" placeholder="Иванов" />
-          </div>
-          <div class="field">
-            <label>Дата на раждане</label>
-            <input type="date" formControlName="birth_date" (change)="onBirthDateChange()" />
-          </div>
-          @if (!form.value.birth_date) {
+          <div class="field-row">
             <div class="field">
-              <label>Поколение <span class="hint">(ако няма дата на раждане)</span></label>
-              <select formControlName="generation_hint">
-                <option [ngValue]="null">— Неизвестно —</option>
-                @for (g of genRanges; track g.from) {
-                  <option [ngValue]="g.from">{{ g.name }} ({{ g.from }}–{{ g.to }})</option>
-                }
-              </select>
+              <label>Собствено име *</label>
+              <input formControlName="first_name" placeholder="Иван" />
             </div>
-          }
-          <div class="field">
-            <label>Дата на смърт</label>
-            <input type="date" formControlName="death_date" />
+            <div class="field">
+              <label>Фамилия *</label>
+              <input formControlName="last_name" placeholder="Иванов" />
+            </div>
           </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>Дата на раждане</label>
+              <input type="date" formControlName="birth_date" (change)="onBirthDateChange()" />
+            </div>
+            <div class="field">
+              <label>Място на раждане</label>
+              <input formControlName="birth_place" placeholder="гр. София" />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>Час на раждане</label>
+              <input formControlName="birth_time" placeholder="14:30 или при изгрев слънце" />
+            </div>
+            @if (!form.value.birth_date) {
+              <div class="field">
+                <label>Поколение <span class="hint">(ако няма дата на раждане)</span></label>
+                <select formControlName="generation_hint">
+                  <option [ngValue]="null">— Неизвестно —</option>
+                  @for (g of genRanges; track g.from) {
+                    <option [ngValue]="g.from">{{ g.name }} ({{ g.from }}–{{ g.to }})</option>
+                  }
+                </select>
+              </div>
+            }
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>Дата на смърт</label>
+              <input type="date" formControlName="death_date" />
+            </div>
+            <div class="field">
+              <label>Място на смъртта</label>
+              <input formControlName="death_place" placeholder="гр. Пловдив" />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>Образование</label>
+              <input formControlName="education" placeholder="Висше, СУ" />
+            </div>
+            <div class="field">
+              <label>Професия</label>
+              <input formControlName="profession" placeholder="Инженер" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Градове/Местоживеене</label>
+            <input formControlName="residence" placeholder="София, Пловдив, Варна" />
+          </div>
+
           <div class="field">
             <label>Биография</label>
-            <textarea formControlName="bio" rows="4" placeholder="Кратко описание..."></textarea>
+            <textarea formControlName="bio" rows="3" placeholder="Кратко описание..."></textarea>
           </div>
 
           @if (person) {
@@ -106,7 +146,7 @@ export interface PersonFormRelation {
     }
     .modal {
       background: var(--surface); border-radius: 12px;
-      padding: 28px 24px; width: 460px; max-width: 95vw;
+      padding: 28px 24px; width: 520px; max-width: 95vw;
       max-height: 90vh; overflow-y: auto;
       box-shadow: 0 8px 32px rgba(0,0,0,0.2);
     }
@@ -114,6 +154,8 @@ export interface PersonFormRelation {
     .divider { border: none; border-top: 1px solid var(--border); margin: 8px 0 16px; }
     .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .section-title { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .field-row { display: flex; gap: 12px; }
+    .field-row .field { flex: 1; min-width: 0; }
     .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
     label { font-size: 13px; color: var(--text); font-weight: 500; }
     input, textarea, select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; outline: none; background: var(--surface); color: var(--text); }
@@ -151,7 +193,13 @@ export class PersonFormComponent implements OnInit {
       first_name: [this.person?.first_name ?? '', Validators.required],
       last_name: [this.person?.last_name ?? '', Validators.required],
       birth_date: [this.person?.birth_date ?? ''],
+      birth_place: [this.person?.birth_place ?? ''],
+      birth_time: [this.person?.birth_time ?? ''],
       death_date: [this.person?.death_date ?? ''],
+      death_place: [this.person?.death_place ?? ''],
+      education: [this.person?.education ?? ''],
+      profession: [this.person?.profession ?? ''],
+      residence: [this.person?.residence ?? ''],
       generation_hint: [this.person?.generation_hint ?? null],
       bio: [this.person?.bio ?? ''],
       relations: this.fb.array([]),
@@ -199,7 +247,13 @@ export class PersonFormComponent implements OnInit {
       first_name: raw.first_name,
       last_name: raw.last_name,
       birth_date: raw.birth_date || null,
+      birth_place: raw.birth_place || null,
+      birth_time: raw.birth_time || null,
       death_date: raw.death_date || null,
+      death_place: raw.death_place || null,
+      education: raw.education || null,
+      profession: raw.profession || null,
+      residence: raw.residence || null,
       generation_hint: raw.birth_date ? null : (raw.generation_hint ?? null),
       bio: raw.bio || null,
     };

@@ -31,6 +31,7 @@ def get_graph(db: Session = Depends(get_db)):
             person_a_id=r.person_a_id,
             person_b_id=r.person_b_id,
             relation_type=r.relation_type,
+            is_divorced=r.is_divorced if r.relation_type.value == 'SPOUSE' else False,
         )
         for r in relations
     ]

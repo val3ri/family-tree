@@ -2,7 +2,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from models.database import get_db, Relation, Person
-from models.schemas import RelationCreate, RelationResponse
+from models.schemas import RelationCreate, RelationResponse, RelationUpdate
 
 router = APIRouter(prefix="/relations", tags=["relations"])
 
@@ -37,6 +37,19 @@ def create_relation(data: RelationCreate, db: Session = Depends(get_db)):
 
     relation = Relation(**data.model_dump())
     db.add(relation)
+    db.commit()
+    db.refresh(relation)
+    return relation
+
+
+@router.patch("/{relation_id}", response_model=RelationResponse)
+def update_relation(relation_id: uuid.UUID, data: RelationUpdate, db: Session = Depends(get_db)):
+    relation = db.query(Relation).filter(Relation.id == relation_id).first()
+    if not relation:
+        raise HTTPException(status_code=404, detail="Връзката не е намерена")
+    relation.marriage_date = data.marriage_date
+    relation.marriage_place = data.marriage_place or None
+    relation.is_divorced = data.is_divorced
     db.commit()
     db.refresh(relation)
     return relation

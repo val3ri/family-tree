@@ -36,7 +36,12 @@ export class GraphService {
     addAncestors(focusId);
     addDescendants(focusId);
 
+    // Стъпка 1б: Полубратя — всички деца на ПРЕКИТЕ родители на фокусирания.
+    // (само преки родители, не прародители, за да не се показват братовчеди)
+    getParents(focusId).forEach(parentId => addDescendants(parentId));
+
     // Стъпка 2: братя/сестри на кръвните (те са също кръвни)
+    // Итерираме след 1б, за да включим SIBLING ребрата и на новодобавените полубратя.
     const bloodCopy = new Set(bloodRelatives);
     bloodCopy.forEach(id => {
       getSiblings(id).forEach(sid => {
