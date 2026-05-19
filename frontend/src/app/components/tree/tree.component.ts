@@ -82,6 +82,8 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
   private liveMarriageNodes: MarriageNode[] = [];
   private genMap = new Map<string, number>();
   private readonly Y_GAP = 140;
+  private readonly YEAR_GAP = 8;
+  private minYear = 1900;
   private themeSub?: Subscription;
 
   constructor(private zone: NgZone, private themeService: ThemeService) {}
@@ -205,55 +207,165 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
     const X_GAP = 120;
-    const yGap = this.Y_GAP;
+    const YEAR_GAP = this.YEAR_GAP;
 
     const spouseEdges  = edges.filter(e => e.relation_type === 'SPOUSE');
     const pcEdges      = edges.filter(e => e.relation_type === 'PARENT_CHILD');
     const siblingEdges = edges.filter(e => e.relation_type === 'SIBLING');
 
-    // ── Генерационни нива (BFS + birth year) ────────────────────────────────
+    // 1. Birth Year Estimation
+    const estimateBirthYears = (): Map<string, number> => {
+      const years = new Map<string, number>();
+      
+      nodes.forEach(n => {
+        if (n.birth_date) {
+          years.set(n.id, new Date(n.birth_date).getFullYear());
+        } else if (n.generation_hint) {
+          years.set(n.id, n.generation_hint);
+        }
+      });
 
-    const getGenOrder = (n: GraphNode): number | null => {
-      if (n.birth_date) {
-        const yr = new Date(n.birth_date).getFullYear();
-        return GEN_RANGES.find(g => yr >= g.from && yr <= g.to)?.order ?? null;
+      let changed = true;
+      for (let iter = 0; iter < 10 && changed; iter++) {
+        changed = false;
+        
+        nodes.forEach(n => {
+          if (years.has(n.id)) return;
+
+          // Try spouses
+          const spouseIds = spouseEdges.flatMap(e => 
+            e.person_a_id === n.id ? [e.person_b_id] : e.person_b_id === n.id ? [e.person_a_id] : []
+          );
+          for (const sid of spouseIds) {
+            if (years.has(sid)) {
+              years.set(n.id, years.get(sid)!);
+              changed = true;
+              return;
+            }
+          }
+
+          // Try siblings
+          const siblingIds = siblingEdges.flatMap(e => 
+            e.person_a_id === n.id ? [e.person_b_id] : e.person_b_id === n.id ? [e.person_a_id] : []
+          );
+          const siblingYears = siblingIds.map(sid => years.get(sid)).filter(y => y !== undefined) as number[];
+          if (siblingYears.length > 0) {
+            const avg = Math.round(siblingYears.reduce((a, b) => a + b, 0) / siblingYears.length);
+            years.set(n.id, avg);
+            changed = true;
+            return;
+          }
+
+          // Try parents (child is parent + 25)
+          const parentIds = pcEdges.filter(e => e.person_b_id === n.id).map(e => e.person_a_id);
+          const parentYears = parentIds.map(pid => years.get(pid)).filter(y => y !== undefined) as number[];
+          if (parentYears.length > 0) {
+            const avg = Math.round(parentYears.reduce((a, b) => a + b, 0) / parentYears.length);
+            years.set(n.id, avg + 25);
+            changed = true;
+            return;
+          }
+
+          // Try children (parent is child - 25)
+          const childIds = pcEdges.filter(e => e.person_a_id === n.id).map(e => e.person_b_id);
+          const childYears = childIds.map(cid => years.get(cid)).filter(y => y !== undefined) as number[];
+          if (childYears.length > 0) {
+            const avg = Math.round(childYears.reduce((a, b) => a + b, 0) / childYears.length);
+            years.set(n.id, avg - 25);
+            changed = true;
+            return;
+          }
+        });
       }
-      if (n.generation_hint) return GEN_HINT_ORDER[n.generation_hint] ?? null;
-      return null;
+
+      const defaultYear = 1970;
+      nodes.forEach(n => {
+        if (!years.has(n.id)) {
+          years.set(n.id, defaultYear);
+        }
+      });
+
+      return years;
     };
 
-    const bfsMap = new Map<string, number>();
-    const childIdsSet = new Set(pcEdges.map(e => e.person_b_id));
-    const bfsRoots = nodes.filter(n => !childIdsSet.has(n.id));
-    const bfsQueue: { id: string; gen: number }[] = bfsRoots.map(r => ({ id: r.id, gen: 0 }));
-    while (bfsQueue.length) {
-      const { id, gen } = bfsQueue.shift()!;
-      const cur = bfsMap.get(id);
-      if (cur !== undefined && cur >= gen) continue;
-      bfsMap.set(id, gen);
-      pcEdges.filter(e => e.person_a_id === id)
-        .forEach(e => bfsQueue.push({ id: e.person_b_id, gen: gen + 1 }));
+    const estYears = estimateBirthYears();
+
+    // 2. Structural Generation Row Assignment for Horizontal Layout (Group mapping)
+    const parentMap = new Map<string, string>();
+    const find = (id: string): string => {
+      if (!parentMap.has(id)) {
+        parentMap.set(id, id);
+        return id;
+      }
+      let root = id;
+      while (root !== parentMap.get(root)) {
+        root = parentMap.get(root)!;
+      }
+      let curr = id;
+      while (curr !== root) {
+        let nxt = parentMap.get(curr)!;
+        parentMap.set(curr, root);
+        curr = nxt;
+      }
+      return root;
+    };
+    const union = (id1: string, id2: string) => {
+      const r1 = find(id1);
+      const r2 = find(id2);
+      if (r1 !== r2) {
+        parentMap.set(r1, r2);
+      }
+    };
+
+    spouseEdges.forEach(e => union(e.person_a_id, e.person_b_id));
+    siblingEdges.forEach(e => union(e.person_a_id, e.person_b_id));
+
+    const groupNodes = new Map<string, string[]>();
+    nodes.forEach(n => {
+      const root = find(n.id);
+      if (!groupNodes.has(root)) groupNodes.set(root, []);
+      groupNodes.get(root)!.push(n.id);
+    });
+
+    const groups = Array.from(groupNodes.keys());
+    const groupIndex = new Map(groups.map((g, i) => [g, i]));
+
+    const groupAdj = new Map<number, Set<number>>();
+    groups.forEach((g, idx) => groupAdj.set(idx, new Set<number>()));
+    pcEdges.forEach(e => {
+      const pGroup = groupIndex.get(find(e.person_a_id));
+      const cGroup = groupIndex.get(find(e.person_b_id));
+      if (pGroup !== undefined && cGroup !== undefined && pGroup !== cGroup) {
+        groupAdj.get(pGroup)!.add(cGroup);
+      }
+    });
+
+    const groupDepths = new Array(groups.length).fill(0);
+    let relaxed = true;
+    for (let iter = 0; iter < groups.length && relaxed; iter++) {
+      relaxed = false;
+      for (let pIdx = 0; pIdx < groups.length; pIdx++) {
+        const pDepth = groupDepths[pIdx];
+        for (const cIdx of groupAdj.get(pIdx)!) {
+          if (groupDepths[cIdx] < pDepth + 1) {
+            groupDepths[cIdx] = pDepth + 1;
+            relaxed = true;
+          }
+        }
+      }
     }
-    nodes.forEach(n => { if (!bfsMap.has(n.id)) bfsMap.set(n.id, 0); });
 
     const genMap = new Map<string, number>();
-    const nodesWithOrder = nodes.filter(n => getGenOrder(n) !== null);
-    let bfsToGenOffset = 0;
-    if (nodesWithOrder.length > 0) {
-      const ref = nodesWithOrder[0];
-      bfsToGenOffset = (getGenOrder(ref) ?? 0) - (bfsMap.get(ref.id) ?? 0);
-    }
     nodes.forEach(n => {
-      const order = getGenOrder(n);
-      genMap.set(n.id, order !== null ? order : (bfsMap.get(n.id) ?? 0) + bfsToGenOffset);
+      const depth = groupDepths[groupIndex.get(find(n.id))!];
+      genMap.set(n.id, depth);
     });
 
     const usedSlots = Array.from(new Set(genMap.values())).sort((a, b) => a - b);
     const slotRemap = new Map(usedSlots.map((s, i) => [s, i]));
     genMap.forEach((s, id) => genMap.set(id, slotRemap.get(s)!));
 
-    // ── Ghost nodes ──────────────────────────────────────────────────────────
-
+    // 3. Exclude ghost nodes from core layout
     const ghostIds = new Set(nodes.filter(n => n.ghost).map(n => n.id));
     const ghostSpouseIds = new Set<string>();
     ghostIds.forEach(gid => {
@@ -264,7 +376,15 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
     });
     const excluded = new Set([...ghostIds, ...ghostSpouseIds]);
 
-    // ── Couple units ─────────────────────────────────────────────────────────
+    // 4. Grid Units definition
+    interface GridUnit {
+      id: string;
+      isCouple: boolean;
+      coupleId?: string;
+      personId?: string;
+      aId?: string;
+      bId?: string;
+    }
 
     interface CoupleUnit { id: string; aId: string; bId: string; }
     const coupleUnits: CoupleUnit[] = [];
@@ -277,8 +397,6 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
       if (!coupleByPerson.has(e.person_a_id)) coupleByPerson.set(e.person_a_id, cu);
       if (!coupleByPerson.has(e.person_b_id)) coupleByPerson.set(e.person_b_id, cu);
     });
-
-    // ── Helpers ──────────────────────────────────────────────────────────────
 
     const getParentCouple = (id: string): CoupleUnit | null => {
       for (const e of pcEdges.filter(e2 => e2.person_b_id === id)) {
@@ -300,16 +418,6 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
     const getSingleChildren = (pid: string): string[] =>
       pcEdges.filter(e => e.person_a_id === pid && !excluded.has(e.person_b_id)).map(e => e.person_b_id);
 
-    // ── Генерационен grid алгоритъм ──────────────────────────────────────────
-    //
-    // Единица за наредба = "slot": двойка (couple unit) или сам човек.
-    // Фазата е bottom-up: децата се наредят първо, после родителите се центрират.
-
-    const xSlot = new Map<string, number>();
-
-    interface GridUnit { isCouple: boolean; coupleId?: string; personId?: string; }
-    const getGridUnitId = (gu: GridUnit) => gu.isCouple ? gu.coupleId! : gu.personId!;
-
     const allMainNodes = nodes.filter(n => !excluded.has(n.id));
     const isChild = new Set(pcEdges.filter(e => !excluded.has(e.person_b_id)).map(e => e.person_b_id));
 
@@ -318,9 +426,12 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
     allMainNodes.forEach(n => {
       const cu = coupleByPerson.get(n.id);
       if (cu) {
-        if (!seenCouplesMain.has(cu.id)) { seenCouplesMain.add(cu.id); allGridUnits.push({ isCouple: true, coupleId: cu.id }); }
+        if (!seenCouplesMain.has(cu.id)) {
+          seenCouplesMain.add(cu.id);
+          allGridUnits.push({ id: cu.id, isCouple: true, coupleId: cu.id, aId: cu.aId, bId: cu.bId });
+        }
       } else {
-        allGridUnits.push({ isCouple: false, personId: n.id });
+        allGridUnits.push({ id: n.id, isCouple: false, personId: n.id });
       }
     });
 
@@ -332,130 +443,335 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
       return !isChild.has(gu.personId!);
     });
 
-    let cursor = 0;
-    const placed = new Set<string>();
-    const placing = new Set<string>(); // cycle guard
-
-    const placeUnit = (gu: GridUnit): { left: number; right: number } => {
-      const uid = getGridUnitId(gu);
-      if (placing.has(uid)) return { left: cursor, right: cursor };
-      placing.add(uid);
-
+    const getUnitYear = (gu: GridUnit): number => {
       if (gu.isCouple) {
-        const cu = coupleUnits.find(c => c.id === gu.coupleId)!;
-        if (placed.has(cu.aId)) {
-          placing.delete(uid);
-          return { left: xSlot.get(cu.aId)!, right: xSlot.get(cu.bId)! };
-        }
-
-        const childIds = getCoupleChildren(cu);
-        const childUnits: GridUnit[] = [];
-        const seenChild = new Set<string>();
-        childIds.forEach(cid => {
-          const childCu = getParentCouple(cid);
-          if (childCu) {
-            if (!seenChild.has(childCu.id)) { seenChild.add(childCu.id); childUnits.push({ isCouple: true, coupleId: childCu.id }); }
-          } else {
-            if (!seenChild.has(cid)) { seenChild.add(cid); childUnits.push({ isCouple: false, personId: cid }); }
-          }
-        });
-
-        let childLeft = Infinity, childRight = -Infinity;
-        childUnits.forEach(cu2 => {
-          const r = placeUnit(cu2);
-          childLeft  = Math.min(childLeft,  r.left);
-          childRight = Math.max(childRight, r.right);
-        });
-
-        let ax: number, bx: number;
-        if (childUnits.length > 0) {
-          const mid = (childLeft + childRight) / 2;
-          ax = mid - X_GAP / 2;
-          bx = mid + X_GAP / 2;
-          if (ax < cursor) { const shift = cursor - ax; ax += shift; bx += shift; }
-        } else {
-          ax = cursor;
-          bx = cursor + X_GAP;
-        }
-
-        xSlot.set(cu.aId, ax);
-        xSlot.set(cu.bId, bx);
-        placed.add(cu.aId);
-        placed.add(cu.bId);
-        cursor = Math.max(cursor, bx + X_GAP);
-        placing.delete(uid);
-        return { left: ax, right: bx };
-
+        return (estYears.get(gu.aId!)! + estYears.get(gu.bId!)!) / 2;
       } else {
-        const pid = gu.personId!;
-        if (placed.has(pid)) {
-          placing.delete(uid);
-          return { left: xSlot.get(pid)!, right: xSlot.get(pid)! };
-        }
-
-        const childIds = getSingleChildren(pid);
-        const childUnits: GridUnit[] = [];
-        const seenChild = new Set<string>();
-        childIds.forEach(cid => {
-          const childCu = getParentCouple(cid);
-          if (childCu) {
-            if (!seenChild.has(childCu.id)) { seenChild.add(childCu.id); childUnits.push({ isCouple: true, coupleId: childCu.id }); }
-          } else {
-            if (!seenChild.has(cid)) { seenChild.add(cid); childUnits.push({ isCouple: false, personId: cid }); }
-          }
-        });
-
-        let childLeft = Infinity, childRight = -Infinity;
-        childUnits.forEach(cu2 => {
-          const r = placeUnit(cu2);
-          childLeft  = Math.min(childLeft,  r.left);
-          childRight = Math.max(childRight, r.right);
-        });
-
-        let px: number;
-        if (childUnits.length > 0) {
-          px = (childLeft + childRight) / 2;
-          if (px < cursor) px = cursor;
-        } else {
-          px = cursor;
-        }
-
-        xSlot.set(pid, px);
-        placed.add(pid);
-        cursor = Math.max(cursor, px + X_GAP);
-        placing.delete(uid);
-        return { left: px, right: px };
+        return estYears.get(gu.personId!)!;
       }
     };
 
-    rootUnits.forEach(gu => placeUnit(gu));
-
-    // Place remaining unplaced nodes
-    allGridUnits.forEach(gu => {
-      if (gu.isCouple) {
-        const cu = coupleUnits.find(c => c.id === gu.coupleId)!;
-        if (!placed.has(cu.aId)) {
-          xSlot.set(cu.aId, cursor); xSlot.set(cu.bId, cursor + X_GAP);
-          placed.add(cu.aId); placed.add(cu.bId);
-          cursor += X_GAP * 2;
+    const getUnitChildren = (gu: GridUnit): GridUnit[] => {
+      const childIds = gu.isCouple 
+        ? getCoupleChildren(coupleUnits.find(c => c.id === gu.coupleId)!)
+        : getSingleChildren(gu.personId!);
+      
+      const childUnits: GridUnit[] = [];
+      const seen = new Set<string>();
+      childIds.forEach(cid => {
+        const cu = coupleByPerson.get(cid);
+        if (cu) {
+          if (!seen.has(cu.id)) {
+            seen.add(cu.id);
+            childUnits.push({ id: cu.id, isCouple: true, coupleId: cu.id, aId: cu.aId, bId: cu.bId });
+          }
+        } else {
+          if (!seen.has(cid)) {
+            seen.add(cid);
+            childUnits.push({ id: cid, isCouple: false, personId: cid });
+          }
         }
+      });
+
+      childUnits.sort((a, b) => getUnitYear(a) - getUnitYear(b));
+      return childUnits;
+    };
+
+    // 5. Level-by-level Sequencing and Relaxation Layout Algorithm
+    const absoluteX = new Map<string, number>();
+    
+    // Group active nodes by their generation row
+    const rowNodesMap = new Map<number, string[]>();
+    nodes.forEach(n => {
+      if (excluded.has(n.id)) return;
+      const r = genMap.get(n.id)!;
+      if (!rowNodesMap.has(r)) rowNodesMap.set(r, []);
+      rowNodesMap.get(r)!.push(n.id);
+    });
+
+    const activeRows = Array.from(rowNodesMap.keys()).sort((a, b) => a - b);
+    const orderedRowNodes = new Map<number, string[]>();
+
+    interface SeqUnit {
+      isCouple: boolean;
+      aId?: string;
+      bId?: string;
+      personId?: string;
+    }
+
+    activeRows.forEach(r => {
+      const rowNodeIds = rowNodesMap.get(r)!;
+      const units: SeqUnit[] = [];
+      const seen = new Set<string>();
+
+      rowNodeIds.forEach(id => {
+        if (seen.has(id)) return;
+        const cu = coupleByPerson.get(id);
+        if (cu) {
+          seen.add(cu.aId);
+          seen.add(cu.bId);
+          units.push({ isCouple: true, aId: cu.aId, bId: cu.bId });
+        } else {
+          seen.add(id);
+          units.push({ isCouple: false, personId: id });
+        }
+      });
+
+      if (r === 0) {
+        // Sort row 0 units by birth year
+        const getUnitYear = (u: SeqUnit): number => {
+          if (u.isCouple) {
+            return (estYears.get(u.aId!)! + estYears.get(u.bId!)!) / 2;
+          } else {
+            return estYears.get(u.personId!)!;
+          }
+        };
+        units.sort((a, b) => getUnitYear(a) - getUnitYear(b));
       } else {
-        const pid = gu.personId!;
-        if (!placed.has(pid)) { xSlot.set(pid, cursor); placed.add(pid); cursor += X_GAP; }
+        // Sort subsequent rows by parent barycenter
+        const getParentX = (id: string): number | null => {
+          const parentIds = pcEdges.filter(e => e.person_b_id === id).map(e => e.person_a_id);
+          if (parentIds.length === 0) return null;
+          const parentXs = parentIds.map(pid => absoluteX.get(pid)).filter(x => x !== undefined) as number[];
+          if (parentXs.length > 0) {
+            return parentXs.reduce((a, b) => a + b, 0) / parentXs.length;
+          }
+          return null;
+        };
+
+        const getUnitBarycenter = (u: SeqUnit): number => {
+          if (u.isCouple) {
+            const pA = getParentX(u.aId!);
+            const pB = getParentX(u.bId!);
+            if (pA !== null && pB !== null) return (pA + pB) / 2;
+            if (pA !== null) return pA;
+            if (pB !== null) return pB;
+          } else {
+            const p = getParentX(u.personId!);
+            if (p !== null) return p;
+          }
+          // Fallback if no parents: try sibling barycenter
+          const id = u.isCouple ? u.aId! : u.personId!;
+          const siblingIds = siblingEdges.flatMap(e => 
+            e.person_a_id === id ? [e.person_b_id] : e.person_b_id === id ? [e.person_a_id] : []
+          );
+          for (const sibId of siblingIds) {
+            const pSib = getParentX(sibId);
+            if (pSib !== null) return pSib;
+          }
+          return 0;
+        };
+
+        units.sort((a, b) => {
+          const baryA = getUnitBarycenter(a);
+          const baryB = getUnitBarycenter(b);
+          if (Math.abs(baryA - baryB) < 1) {
+            const yrA = a.isCouple ? (estYears.get(a.aId!)! + estYears.get(a.bId!)!) / 2 : estYears.get(a.personId!)!;
+            const yrB = b.isCouple ? (estYears.get(b.aId!)! + estYears.get(b.bId!)!) / 2 : estYears.get(b.personId!)!;
+            return yrA - yrB;
+          }
+          return baryA - baryB;
+        });
+      }
+
+      // Orient spouses within CoupleUnits
+      units.forEach((u, uIdx) => {
+        if (!u.isCouple) return;
+
+        const aId = u.aId!;
+        const bId = u.bId!;
+
+        const hasParentsA = pcEdges.some(e => e.person_b_id === aId);
+        const hasParentsB = pcEdges.some(e => e.person_b_id === bId);
+
+        if (hasParentsA && hasParentsB) {
+          // Both are blood: compare their parent centers
+          const getParentCenter = (id: string): number => {
+            const parentIds = pcEdges.filter(e => e.person_b_id === id).map(e => e.person_a_id);
+            const parentXs = parentIds.map(pid => absoluteX.get(pid)!).filter(x => x !== undefined);
+            return parentXs.length > 0 ? parentXs.reduce((a, b) => a + b, 0) / parentXs.length : 0;
+          };
+          if (getParentCenter(aId) > getParentCenter(bId)) {
+            u.aId = bId; u.bId = aId;
+          }
+        } else if (hasParentsA || hasParentsB) {
+          // One is blood, one is spouse
+          const bloodId = hasParentsA ? aId : bId;
+          const spouseId = hasParentsA ? bId : aId;
+
+          // Find sibling units in the current row
+          const parentIds = pcEdges.filter(e => e.person_b_id === bloodId).map(e => e.person_a_id);
+          const siblingIds = pcEdges.filter(e => parentIds.includes(e.person_a_id)).map(e => e.person_b_id);
+
+          // Find sibling units that contain these siblings
+          const sibUnits = units.filter(su => 
+            su.isCouple 
+              ? (siblingIds.includes(su.aId!) || siblingIds.includes(su.bId!))
+              : siblingIds.includes(su.personId!)
+          );
+
+          // Sort sibling units by parent barycenter to get their horizontal sequence
+          const getUnitBarycenter = (su: SeqUnit): number => {
+            if (su.isCouple) {
+              const pA = pcEdges.filter(e => e.person_b_id === su.aId!).map(e => e.person_a_id);
+              const pB = pcEdges.filter(e => e.person_b_id === su.bId!).map(e => e.person_a_id);
+              const pAll = [...pA, ...pB];
+              const pXs = pAll.map(pid => absoluteX.get(pid)!).filter(x => x !== undefined);
+              return pXs.length > 0 ? pXs.reduce((a, b) => a + b, 0) / pXs.length : 0;
+            } else {
+              const p = pcEdges.filter(e => e.person_b_id === su.personId!).map(e => e.person_a_id);
+              const pXs = p.map(pid => absoluteX.get(pid)!).filter(x => x !== undefined);
+              return pXs.length > 0 ? pXs.reduce((a, b) => a + b, 0) / pXs.length : 0;
+            }
+          };
+          sibUnits.sort((su1, su2) => getUnitBarycenter(su1) - getUnitBarycenter(su2));
+
+          const sibIdx = sibUnits.findIndex(su => 
+            su.isCouple 
+              ? (su.aId === bloodId || su.bId === bloodId)
+              : su.personId === bloodId
+          );
+
+          if (sibIdx !== -1 && sibIdx < sibUnits.length / 2) {
+            // Left half: spouse on left, blood on right
+            u.aId = spouseId; u.bId = bloodId;
+          } else {
+            // Right half: blood on left, spouse on right
+            u.aId = bloodId; u.bId = spouseId;
+          }
+        }
+      });
+
+      // Flatten units to ordered list of node IDs for this row
+      const orderedIds: string[] = [];
+      units.forEach(u => {
+        if (u.isCouple) {
+          orderedIds.push(u.aId!, u.bId!);
+        } else {
+          orderedIds.push(u.personId!);
+        }
+      });
+      orderedRowNodes.set(r, orderedIds);
+
+      // Initialize baseline X coordinates to allow parent-lookup for the next generation row
+      let curX = 0;
+      orderedIds.forEach(id => {
+        absoluteX.set(id, curX);
+        curX += X_GAP;
+      });
+
+      // Center the absoluteX coordinates of this row around 0
+      const rowXs = orderedIds.map(id => absoluteX.get(id)!).filter(x => x !== undefined);
+      if (rowXs.length > 0) {
+        const meanX = rowXs.reduce((a, b) => a + b, 0) / rowXs.length;
+        orderedIds.forEach(id => {
+          absoluteX.set(id, absoluteX.get(id)! - meanX);
+        });
       }
     });
 
-    // Center around 0
-    const allX = [...xSlot.values()];
-    const midX = allX.length ? (Math.min(...allX) + Math.max(...allX)) / 2 : 0;
+    // Spread coordinates around 0 for each row initially
+    const posX = new Map<string, number>();
+    activeRows.forEach(r => {
+      const ids = orderedRowNodes.get(r)!;
+      let startX = -((ids.length - 1) * X_GAP) / 2;
+      ids.forEach((id, idx) => {
+        posX.set(id, startX + idx * X_GAP);
+      });
+    });
+
+    // Perform 20 iterations of relaxation positioning
+    for (let iter = 0; iter < 20; iter++) {
+      activeRows.forEach(r => {
+        const ids = orderedRowNodes.get(r)!;
+        if (ids.length === 0) return;
+
+        const targets = ids.map(id => {
+          const parentIds = pcEdges.filter(e => e.person_b_id === id).map(e => e.person_a_id);
+          const childIds = pcEdges.filter(e => e.person_a_id === id).map(e => e.person_b_id);
+
+          const parentXs = parentIds.map(pid => posX.get(pid)!).filter(x => x !== undefined);
+          const childXs = childIds.map(cid => posX.get(cid)!).filter(x => x !== undefined);
+
+          let sum = 0;
+          let count = 0;
+
+          if (parentXs.length > 0) {
+            sum += (parentXs.reduce((a, b) => a + b, 0) / parentXs.length) * 2;
+            count += 2;
+          }
+          if (childXs.length > 0) {
+            sum += (childXs.reduce((a, b) => a + b, 0) / childXs.length) * 2;
+            count += 2;
+          }
+
+          const cu = coupleByPerson.get(id);
+          if (cu) {
+            const spouseId = cu.aId === id ? cu.bId : cu.aId;
+            const spouseX = posX.get(spouseId);
+            if (spouseX !== undefined) {
+              const offset = cu.aId === id ? -X_GAP : X_GAP;
+              sum += (spouseX + offset) * 1.5;
+              count += 1.5;
+            }
+          }
+
+          return count > 0 ? sum / count : posX.get(id)!;
+        });
+
+        // Apply calculated targets
+        ids.forEach((id, idx) => {
+          posX.set(id, targets[idx]);
+        });
+
+        // Resolve 1D spacing constraints (left-to-right push then right-to-left push)
+        for (let i = 1; i < ids.length; i++) {
+          const prevX = posX.get(ids[i - 1])!;
+          const currX = posX.get(ids[i])!;
+          if (currX < prevX + X_GAP) {
+            posX.set(ids[i], prevX + X_GAP);
+          }
+        }
+        for (let i = ids.length - 2; i >= 0; i--) {
+          const nextX = posX.get(ids[i + 1])!;
+          const currX = posX.get(ids[i])!;
+          if (currX > nextX - X_GAP) {
+            posX.set(ids[i], nextX - X_GAP);
+          }
+        }
+      });
+    }
+
+    // Write computed positions back to absoluteX
+    posX.forEach((x, id) => {
+      absoluteX.set(id, x);
+    });
+
+    // Fallback for any unpositioned main nodes
+    allGridUnits.forEach(gu => {
+      if (gu.isCouple) {
+        if (!absoluteX.has(gu.aId!)) {
+          const x = absoluteX.size * X_GAP;
+          absoluteX.set(gu.aId!, x - X_GAP / 2);
+          absoluteX.set(gu.bId!, x + X_GAP / 2);
+        }
+      } else {
+        if (!absoluteX.has(gu.personId!)) {
+          const x = absoluteX.size * X_GAP;
+          absoluteX.set(gu.personId!, x);
+        }
+      }
+    });
+
+    const minYear = Math.min(...estYears.values());
+    this.minYear = minYear;
 
     nodes.filter(n => !excluded.has(n.id)).forEach(n => {
-      n.x = (xSlot.get(n.id) ?? 0) - midX;
-      n.y = (genMap.get(n.id) ?? 0) * yGap;
+      n.x = absoluteX.get(n.id) ?? 0;
+      n.y = (estYears.get(n.id)! - minYear) * YEAR_GAP;
     });
 
     // ── Ghost nodes ───────────────────────────────────────────────────────────
-
     type GhostInfo = { node: GraphNode; anchorX: number; anchorY: number; direction: 1 | -1 };
     const ghostInfos: GhostInfo[] = [];
 
@@ -476,7 +792,7 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
           return;
         }
       }
-      ghostInfos.push({ node: n, anchorX: 0, anchorY: (genMap.get(n.id) ?? 0) * yGap, direction: -1 });
+      ghostInfos.push({ node: n, anchorX: 0, anchorY: (estYears.get(n.id)! - minYear) * YEAR_GAP, direction: -1 });
     });
 
     const ghostGroups = new Map<string, GhostInfo[]>();
@@ -509,7 +825,6 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
     });
 
     // ── Marriage nodes ────────────────────────────────────────────────────────
-
     const marriageNodes: MarriageNode[] = [];
     edges.filter(e => e.relation_type === 'SPOUSE').forEach(e => {
       const a = nodeMap.get(e.person_a_id);
@@ -1088,33 +1403,18 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
 
   private updateGenLabels(): void {
     this.gLabels.selectAll('*').remove();
-    if (!this.genMap.size) return;
+    if (!this.liveNodes.length) return;
 
     const svgWidth = this.svgRef.nativeElement.clientWidth || 1200;
+    const years = this.liveNodes.map(n => Math.round((n.y ?? 0) / this.YEAR_GAP) + this.minYear);
+    const activeGens = GEN_RANGES.filter(g => 
+      years.some(yr => yr >= g.from && yr <= g.to)
+    );
 
-    const getGenNameForYear = (year: number): string => {
-      return GEN_RANGES.find(g => year >= g.from && year <= g.to)?.name ?? '';
-    };
-
-    const allGens = Array.from(new Set(this.genMap.values())).sort((a, b) => a - b);
-
-    allGens.forEach(gen => {
-      const y = gen * this.Y_GAP;
-
-      const genNodes = this.liveNodes.filter(n => this.genMap.get(n.id) === gen);
-      const birthYears = genNodes
-        .map(n => n.birth_date ? new Date(n.birth_date).getFullYear() : null)
-        .filter((yr): yr is number => yr !== null);
-
-      const namesFromDates = birthYears.map(yr => getGenNameForYear(yr)).filter(Boolean);
-      const namesFromHints = genNodes
-        .filter(n => !n.birth_date && n.generation_hint)
-        .map(n => GEN_RANGES.find(g => n.generation_hint! >= g.from && n.generation_hint! <= g.to)?.name ?? '')
-        .filter(Boolean);
-      const allNames = [...new Set([...namesFromDates, ...namesFromHints])];
-      const label = allNames.length >= 1 ? allNames[0] : '';
-      const matchedGen = GEN_RANGES.find(g => g.name === label);
-      const yearRange = matchedGen ? `${matchedGen.from}–${matchedGen.to} г.` : '';
+    activeGens.forEach(g => {
+      const y = (g.from - this.minYear) * this.YEAR_GAP;
+      const label = g.name;
+      const yearRange = `${g.from}–${g.to} г.`;
 
       this.gLabels.append('line')
         .attr('x1', 0).attr('y1', y)
