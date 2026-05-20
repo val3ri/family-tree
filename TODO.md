@@ -36,6 +36,7 @@ These are the required features completed for a stable, functional, and user-fri
 These features will be evaluated and developed following the v1.0 release.
 
 ### Visualization & UI
+- [ ] **Full Bilingual Support (EN / BG):** Complete translation of the UI into English and Bulgarian, with a dedicated language toggle button in the toolbar to switch between them instantly.
 - [ ] **Search by Name:** A search bar in the toolbar filtering individuals and centering/focusing on their tree node upon selection.
 - [ ] **Minimap / Overview Canvas:** A small map overlay in the corner for easier navigation of large family trees.
 - [ ] **Transitions:** Smooth pan/focus animations when clicking relations.
