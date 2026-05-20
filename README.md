@@ -25,9 +25,9 @@ An interactive web application for visualizing, creating, and managing a family 
 * 📱 **Mobile Responsive Design**:
   * Adaptable layout that scales smoothly across smaller devices.
   * On mobile phones, a selected person's detailed card slides up from the bottom as a **Bottom Sheet** overlay with backdrop-blur styling.
-* 💾 **One-Click JSON Backup**:
-  * Export the entire database (people, relations, gallery info) into a single JSON file.
-  * Restore/import the backup file securely through the web UI (wrapped in database transactions to protect data integrity).
+* 💾 **Full ZIP Backup (Photos Included)**:
+  * Export the entire database **and all profile/gallery photos** with one click into a single `.zip` file — contains a JSON metadata file plus all uploaded images.
+  * Restore/import the archive directly through the web UI — photos are automatically extracted and restored alongside the data, with full transaction protection.
 
 ---
 

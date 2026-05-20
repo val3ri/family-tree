@@ -13,27 +13,30 @@ The application runs as a containerized stack managed via Docker Compose:
 
 ---
 
-## 💾 1. Backup & Restore System (JSON Backup)
+## 💾 1. Full Backup & Restore System (ZIP Backup)
 
-The backup system is designed to facilitate easy data portability and prevent data loss. It works entirely with JSON formatted files.
+The backup system is designed to facilitate easy data portability and prevent data loss. The archive is a single `.zip` file containing **both all database records and the physical image files**.
 
 ### 📥 Exporting Data
 * **Endpoint**: `GET /api/backup/export`
 * **Mechanism**:
   1. The backend queries all rows from the database tables: `persons`, `relations`, and `person_photos`.
-  2. The database records are serialized into a JSON object. UUIDs, dates, and timestamps are formatted into ISO-standard string representations.
-  3. The Angular client wraps this JSON response in a local browser memory file (`Blob`) and triggers a download link for a file named `family-tree-backup-YYYY-MM-DD.json`.
+  2. The records are serialized into JSON format and stored as `backup.json` inside the archive. UUIDs, dates, and timestamps are formatted into ISO-standard string representations.
+  3. All physical files from the `uploads/` directory (profile photos and gallery images) are added to the ZIP archive under an `uploads/` folder.
+  4. The Angular client receives the archive as a `Blob` and triggers a download for a file named `family-tree-backup-YYYY-MM-DD.zip`.
 
 ### 📤 Importing Data
 * **Endpoint**: `POST /api/backup/import`
-* **Mechanism**:
-  1. The user uploads a valid backup JSON file through the UI.
-  2. A confirmation prompt warns the user that all current database records will be erased and replaced.
-  3. The backend initiates a **database transaction** with a high isolation level:
+* **Supported formats**: `.zip` (new full format including photos) and `.json` (legacy format — backwards compatible).
+* **Mechanism (ZIP)**:
+  1. The user selects a `.zip` archive file through the UI.
+  2. A confirmation prompt warns the user that all current data will be erased and replaced.
+  3. The backend extracts the archive: reads `backup.json` and copies all files from `uploads/` back into the uploads directory.
+  4. The backend initiates a **database transaction** with a high isolation level:
      * **Cleanup**: Deletes records from child tables `relations` and `person_photos` first, followed by the parent table `persons`. This dependency order prevents Foreign Key constraint violations.
-     * **Insertion**: Iterates through the uploaded JSON array elements, parsing ISO strings back into Python date, time, and UUID formats, and inserts them into their respective tables.
+     * **Insertion**: Iterates through the JSON array elements, parsing ISO strings back into Python date, time, and UUID formats, and inserts them into their respective tables.
      * **Rollback Protection**: If any parsing or database integrity error occurs (e.g. corrupted file), the transaction triggers a complete rollback. The database is restored to its state prior to the import attempt.
-  4. Upon successful insertion, the transaction commits, and the client-side UI is automatically refreshed.
+  5. Upon successful insertion, the transaction commits, and the client-side UI is automatically refreshed.
 
 ---
 
@@ -146,8 +149,8 @@ When hosting the project on a public VPS, adhere to these production practices:
    ```
 
 2. **Persisting Image Uploads**:
-   * **Note**: JSON backups only store textual metadata and file paths (e.g. `/uploads/profile.jpg`). They do not contain the raw binary image data.
-   * Uploaded photos are stored in the Docker volume `uploads_data`. Make sure to schedule regular filesystem backups of this volume (typically found in `/var/lib/docker/volumes/<project_name>_uploads_data/_data` on the host system) to prevent image loss.
+   * ZIP backups from the web UI contain **both the textual metadata and the physical image files**. A complete backup and restore is possible entirely through the web interface.
+   * Uploaded photos are also stored in the Docker volume `uploads_data`. For an additional layer of redundancy (e.g. automated nightly server-side copies), the volume is located at `/var/lib/docker/volumes/<project_name>_uploads_data/_data` on the host system.
 
 3. **HTTPS / SSL Configuration**:
    It is recommended to run a reverse proxy (like Nginx, Traefik, or Caddy) in front of the frontend container (Port 80) to enable Let's Encrypt SSL certificates.

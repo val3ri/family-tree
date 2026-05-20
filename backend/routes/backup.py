@@ -1,9 +1,14 @@
+import io
 import json
+import zipfile
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from config import settings
 from models.database import get_db, Person, Relation, PersonPhoto, RelationType
 
 router = APIRouter(prefix="/backup", tags=["backup"])
@@ -21,34 +26,66 @@ def export_backup(db: Session = Depends(get_db)):
     relations = db.query(Relation).all()
     photos = db.query(PersonPhoto).all()
 
-    persons_data = []
-    for p in persons:
-        p_dict = {col.name: serialize_db_val(getattr(p, col.name)) for col in p.__table__.columns}
-        persons_data.append(p_dict)
+    persons_data = [
+        {col.name: serialize_db_val(getattr(p, col.name)) for col in p.__table__.columns}
+        for p in persons
+    ]
+    relations_data = [
+        {col.name: serialize_db_val(getattr(r, col.name)) for col in r.__table__.columns}
+        for r in relations
+    ]
+    photos_data = [
+        {col.name: serialize_db_val(getattr(ph, col.name)) for col in ph.__table__.columns}
+        for ph in photos
+    ]
 
-    relations_data = []
-    for r in relations:
-        r_dict = {col.name: serialize_db_val(getattr(r, col.name)) for col in r.__table__.columns}
-        relations_data.append(r_dict)
+    metadata = {"persons": persons_data, "relations": relations_data, "person_photos": photos_data}
 
-    photos_data = []
-    for ph in photos:
-        ph_dict = {col.name: serialize_db_val(getattr(ph, col.name)) for col in ph.__table__.columns}
-        photos_data.append(ph_dict)
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("backup.json", json.dumps(metadata, ensure_ascii=False, indent=2))
+        uploads_dir = Path(settings.UPLOADS_DIR)
+        if uploads_dir.exists():
+            for img_path in uploads_dir.iterdir():
+                if img_path.is_file():
+                    zf.write(img_path, f"uploads/{img_path.name}")
 
-    return {
-        "persons": persons_data,
-        "relations": relations_data,
-        "person_photos": photos_data
-    }
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=family-tree-backup.zip"},
+    )
 
 @router.post("/import")
 async def import_backup(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    try:
-        contents = await file.read()
-        data = json.loads(contents.decode("utf-8"))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Невалиден JSON файл: {str(e)}")
+    contents = await file.read()
+    filename = file.filename or ""
+
+    if filename.endswith(".zip"):
+        try:
+            zip_buffer = io.BytesIO(contents)
+            with zipfile.ZipFile(zip_buffer, "r") as zf:
+                if "backup.json" not in zf.namelist():
+                    raise HTTPException(status_code=400, detail="ZIP архивът не съдържа backup.json")
+                with zf.open("backup.json") as jf:
+                    data = json.load(jf)
+                uploads_dir = Path(settings.UPLOADS_DIR)
+                uploads_dir.mkdir(parents=True, exist_ok=True)
+                for name in zf.namelist():
+                    if name.startswith("uploads/") and not name.endswith("/"):
+                        img_name = Path(name).name
+                        with zf.open(name) as img_file:
+                            (uploads_dir / img_name).write_bytes(img_file.read())
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Невалиден ZIP файл: {str(e)}")
+    else:
+        try:
+            data = json.loads(contents.decode("utf-8"))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Невалиден JSON файл: {str(e)}")
 
     if "persons" not in data or "relations" not in data:
         raise HTTPException(status_code=400, detail="Липсват задължителни полета ('persons' или 'relations') в архива")

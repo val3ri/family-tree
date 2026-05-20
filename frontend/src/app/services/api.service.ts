@@ -79,8 +79,8 @@ export class ApiService {
   }
 
   // Backup
-  exportBackup(): Observable<any> {
-    return this.http.get<any>(`${this.base}/backup/export`);
+  exportBackup(): Observable<Blob> {
+    return this.http.get(`${this.base}/backup/export`, { responseType: 'blob' });
   }
 
   importBackup(file: File): Observable<any> {

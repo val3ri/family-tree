@@ -26,7 +26,7 @@ import { PersonPanelComponent } from '../person-panel/person-panel.component';
             <button class="btn-add" (click)="openAddForm()">+ Добави човек</button>
             <button class="btn-secondary-outline" (click)="exportBackup()">📤 Експорт</button>
             <button class="btn-secondary-outline" (click)="fileInput.click()">📥 Импорт</button>
-            <input #fileInput type="file" (change)="importBackup($event)" accept=".json" style="display: none" />
+            <input #fileInput type="file" (change)="importBackup($event)" accept=".zip,.json" style="display: none" />
           </div>
         </div>
 
@@ -327,18 +327,14 @@ export class HomeComponent implements OnInit {
 
   exportBackup(): void {
     this.api.exportBackup().subscribe({
-      next: (data) => {
-        const jsonStr = JSON.stringify(data, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
+      next: (blob) => {
         const url = window.URL.createObjectURL(blob);
-        
         const a = document.createElement('a');
         const dateStr = new Date().toISOString().split('T')[0];
         a.href = url;
-        a.download = `family-tree-backup-${dateStr}.json`;
+        a.download = `family-tree-backup-${dateStr}.zip`;
         document.body.appendChild(a);
         a.click();
-        
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
       },
