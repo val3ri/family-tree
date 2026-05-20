@@ -77,4 +77,15 @@ export class ApiService {
   getGraph(): Observable<GraphData> {
     return this.http.get<GraphData>(`${this.base}/graph/`);
   }
+
+  // Backup
+  exportBackup(): Observable<any> {
+    return this.http.get<any>(`${this.base}/backup/export`);
+  }
+
+  importBackup(file: File): Observable<any> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<any>(`${this.base}/backup/import`, form);
+  }
 }

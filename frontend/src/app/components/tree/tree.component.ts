@@ -143,6 +143,10 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
     const gridLine = cssVars.getPropertyValue('--grid-line').trim() || '#d0d8e8';
 
     const defs = this.svg.append('defs');
+    const grayscaleFilter = defs.append('filter').attr('id', 'grayscale');
+    grayscaleFilter.append('feColorMatrix')
+      .attr('type', 'saturate')
+      .attr('values', '0');
     const pattern = defs.append('pattern')
       .attr('id', 'grid-pattern')
       .attr('width', 40).attr('height', 40)
@@ -1194,11 +1198,12 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
       };
 
       if (d.photo_url && !isGhost(d)) {
-        group.append('image')
+        const img = group.append('image')
           .attr('href', d.photo_url)
           .attr('x', -r).attr('y', -r)
           .attr('width', r * 2).attr('height', r * 2)
           .attr('clip-path', `url(#clip-${d.id})`);
+        if (d.death_date) img.attr('filter', 'url(#grayscale)');
       } else {
         addInitials(group, d);
       }
@@ -1491,11 +1496,12 @@ export class TreeComponent implements OnInit, AfterViewInit, OnDestroy, OnChange
     group.select('circle.bg-circle').attr('fill', this.getNodeFill());
 
     if (photoUrl) {
-      group.append('image')
+      const img = group.append('image')
         .attr('href', photoUrl + '?t=' + Date.now())
         .attr('x', -r).attr('y', -r)
         .attr('width', r * 2).attr('height', r * 2)
         .attr('clip-path', `url(#clip-${personId})`);
+      if (node.death_date) img.attr('filter', 'url(#grayscale)');
     } else {
       const initials = `${node.first_name[0]}${node.last_name[0]}`.toUpperCase();
       group.append('text')

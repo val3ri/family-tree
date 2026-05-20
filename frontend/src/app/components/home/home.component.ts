@@ -22,7 +22,12 @@ import { PersonPanelComponent } from '../person-panel/person-panel.component';
             <button class="btn-theme" (click)="theme.toggle()" [title]="theme.isDark ? 'Светла тема' : 'Тъмна тема'">{{ theme.isDark ? '☀️' : '🌙' }}</button>
           </div>
           <p>Избери човек за да видиш неговото семейно дърво</p>
-          <button class="btn-add" (click)="openAddForm()">+ Добави човек</button>
+          <div class="hero-actions">
+            <button class="btn-add" (click)="openAddForm()">+ Добави човек</button>
+            <button class="btn-secondary-outline" (click)="exportBackup()">📤 Експорт</button>
+            <button class="btn-secondary-outline" (click)="fileInput.click()">📥 Импорт</button>
+            <input #fileInput type="file" (change)="importBackup($event)" accept=".json" style="display: none" />
+          </div>
         </div>
 
         <div class="table-wrap">
@@ -127,6 +132,27 @@ import { PersonPanelComponent } from '../person-panel/person-panel.component';
     .btn-theme { padding: 8px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 16px; line-height: 1; }
     p { color: var(--text-muted); font-size: 16px; margin-bottom: 20px; margin-top: 8px; }
     .btn-add { padding: 10px 22px; background: #4A90D9; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; }
+    .hero-actions { display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap; }
+    .btn-secondary-outline {
+      padding: 10px 20px;
+      background: none;
+      color: #4A90D9;
+      border: 1px solid #4A90D9;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-secondary-outline:hover {
+      background: var(--surface2);
+      transform: scale(1.02);
+    }
+    .btn-secondary-outline:active {
+      transform: scale(0.98);
+    }
 
     .table-wrap { width: 100%; max-width: 800px; background: var(--surface); border-radius: 12px; box-shadow: 0 2px 16px rgba(0,0,0,0.08); overflow: hidden; }
 
@@ -297,5 +323,52 @@ export class HomeComponent implements OnInit {
     }
     this.showForm = false;
     this.editingPerson = null;
+  }
+
+  exportBackup(): void {
+    this.api.exportBackup().subscribe({
+      next: (data) => {
+        const jsonStr = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        const dateStr = new Date().toISOString().split('T')[0];
+        a.href = url;
+        a.download = `family-tree-backup-${dateStr}.json`;
+        document.body.appendChild(a);
+        a.click();
+        
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      },
+      error: (err) => {
+        alert('Грешка при експортиране на данни: ' + (err.error?.detail || err.message));
+      }
+    });
+  }
+
+  importBackup(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+
+    const file = input.files[0];
+    const confirmMsg = 'ВНИМАНИЕ: Това ще изтрие всички текущи данни и снимки в базата данни и ще ги замени с тези от архива.\n\nСигурни ли сте, че искате да продължите?';
+    if (!confirm(confirmMsg)) {
+      input.value = '';
+      return;
+    }
+
+    this.api.importBackup(file).subscribe({
+      next: (res) => {
+        alert(`Архивът е импортиран успешно!\n\nИмпортирани:\n- Хора: ${res.imported.persons}\n- Връзки: ${res.imported.relations}\n- Снимки: ${res.imported.person_photos}`);
+        this.reload();
+        input.value = '';
+      },
+      error: (err) => {
+        alert('Грешка при импортиране на данни: ' + (err.error?.detail || err.message));
+        input.value = '';
+      }
+    });
   }
 }

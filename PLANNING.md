@@ -1,25 +1,25 @@
 # Family Tree App - Planning Document
 
-## Описание
+## Description
 
-Уеб апликация за визуализация на семейно дърво. Потребителите могат да разглеждат роднини като интерактивни балончета върху безкраен canvas, да зуумират, да влачат графа и да кликат върху всеки човек за подробна информация.
+A web application for family tree visualization. Users can view relatives as interactive nodes on an infinite canvas, zoom, drag the graph, and click on individual profiles to display detailed biographical information.
 
 ---
 
-## Технологичен стек
+## Technology Stack
 
-| Слой | Технология | Причина |
+| Layer | Technology | Rationale |
 |------|-----------|---------|
-| Визуализация | D3.js | Пълен контрол върху layout, marriage nodes, генеалогични структури |
-| Frontend | Angular | Съществуващ опит на разработчика |
-| Backend | FastAPI (Python) | Лек, бърз, подходящ за Raspberry Pi |
-| База данни | PostgreSQL | Стабилна, поддържа сложни релации |
-| Снимки | Локален file upload | Прост storage на сървъра |
-| Deployment | Docker Compose | Лесно пускане на Raspberry Pi |
+| Visualization | D3.js | Complete control over layouts, marriage nodes, and genealogical styling |
+| Frontend | Angular | Developer familiarity and component structure |
+| Backend | FastAPI (Python) | Lightweight, fast, well-suited for Raspberry Pi hosting |
+| Database | PostgreSQL | Reliable relational storage accommodating complex connection structures |
+| Photos | Local Uploads | Simple directory-based image storage on the host filesystem |
+| Deployment | Docker Compose | Easy container deployment on Raspberry Pi and cloud environments |
 
 ---
 
-## Структура на проекта
+## Project Structure
 
 ```
 family-tree/
@@ -27,10 +27,10 @@ family-tree/
 │   ├── src/
 │   │   ├── app/
 │   │   │   ├── components/
-│   │   │   │   ├── tree/           # D3 canvas компонент
-│   │   │   │   ├── person-panel/   # Страничен панел с информация
-│   │   │   │   ├── person-form/    # Форма за добавяне/редактиране
-│   │   │   │   └── legend/         # Легенда за видовете връзки
+│   │   │   │   ├── tree/           # D3 canvas component
+│   │   │   │   ├── person-panel/   # Right details side panel
+│   │   │   │   ├── person-form/    # Form for adding/editing members
+│   │   │   │   └── legend/         # Graph legends
 │   │   │   ├── services/
 │   │   │   │   ├── person.service.ts
 │   │   │   │   └── relation.service.ts
@@ -38,148 +38,146 @@ family-tree/
 │   │   │       ├── person.model.ts
 │   │   │       └── relation.model.ts
 ├── backend/                # FastAPI
-│   ├── models/             # SQLAlchemy модели
-│   ├── routes/             # API endpoints
-│   ├── uploads/            # Качени снимки
+│   ├── models/             # SQLAlchemy schemas
+│   ├── routes/             # REST endpoints
+│   ├── uploads/            # Uploaded profile files
 │   └── main.py
 └── docker-compose.yml
 ```
 
 ---
 
-## База данни - схема
+## Database Schema
 
-### Таблица `persons`
-| Поле | Тип | Описание |
+### Table `persons`
+| Field | Type | Description |
 |------|-----|---------|
-| id | UUID | Първичен ключ |
-| first_name | VARCHAR | Собствено име |
-| last_name | VARCHAR | Фамилия |
-| birth_date | DATE | Дата на раждане |
-| death_date | DATE | Дата на смърт (nullable) |
-| bio | TEXT | Биография/информация |
-| photo_url | VARCHAR | Път до снимката |
-| created_at | TIMESTAMP | Дата на създаване |
+| id | UUID | Primary Key |
+| first_name | VARCHAR | First name |
+| last_name | VARCHAR | Last name |
+| birth_date | DATE | Date of birth |
+| death_date | DATE | Date of death (nullable) |
+| bio | TEXT | Biography / personal summary |
+| photo_url | VARCHAR | Path to uploaded image |
+| created_at | TIMESTAMP | Creation timestamp |
 
-### Таблица `relations`
-| Поле | Тип | Описание |
+### Table `relations`
+| Field | Type | Description |
 |------|-----|---------|
-| id | UUID | Първичен ключ |
-| person_a_id | UUID | FK към persons |
-| person_b_id | UUID | FK към persons |
-| relation_type | ENUM | Тип връзка |
+| id | UUID | Primary Key |
+| person_a_id | UUID | FK to persons |
+| person_b_id | UUID | FK to persons |
+| relation_type | ENUM | Relationship type |
 
-### Типове връзки (relation_type)
-- `PARENT_CHILD` - родител → дете
-- `SPOUSE` - съпруг/а
-- `SIBLING` - брат/сестра
+### Relationship Types (`relation_type`)
+- `PARENT_CHILD` - Parent → Child
+- `SPOUSE` - Spouses
+- `SIBLING` - Siblings
 
-> Производни релации (баба/дядо, братовчед, леля/чичо) се **изчисляват автоматично** от базовите три типа.
+> Derived relationships (grandparents, cousins, aunts/uncles) are **calculated dynamically** from the three basic relationship types.
 
 ---
 
-## Визуализация
+## Visualization
 
-### Принцип
-- Пълен граф - всички хора са видими едновременно
-- Йерархично нареждане по поколения (по-старите поколения горе)
-- Фокусиран човек - визуално подчертан, центриран на екрана
-- Zoom in/out и drag на целия canvas
+### Principles
+- Full Graph - All individuals are rendered simultaneously on the canvas.
+- Generational alignment (older generations are positioned at the top).
+- Active person highlighting and centering.
+- Zoom in/out and drag-to-pan support.
 
-### Marriage nodes
-Децата са визуално между двамата родители чрез "marriage node":
+### Marriage Nodes
+Children connect visually to a virtual node representing the union of their parents:
 ```
-[Дядо]---[Баба]        [Дядо2]---[Баба2]
-      \  /                    \  /
-     [Баща]-----♦-----[Майка]
-                |
-               [АЗ]
+[Grandfather]---[Grandmother]        [Grandfather2]---[Grandmother2]
+            \  /                                  \  /
+           [Father]-----------♦-----------[Mother]
+                              |
+                            [ME]
 ```
 
-### Легенда за линиите
-| Цвят | Връзка |
+### Connector Lines Legend
+| Color | Relationship |
 |------|--------|
-| Синя | Родител / Дете |
-| Червена | Съпруг / Съпруга |
-| Зелена | Брат / Сестра |
+| Blue | Parent / Child |
+| Red | Spouse |
+| Green | Sibling |
 
-### Поведение при кликане
-1. Кликане на балонче → страничен панел се отваря вдясно
-2. Панелът показва: снимка, имена, дата на раждане, биография, преки роднини
-3. Фокусираният човек може да се смени от панела или от drop-down
+### Click Interaction
+1. Tapping/clicking a node opens the profile sidebar on the right.
+2. The sidebar displays: photo, name, birth date, biography, and immediate relatives.
+3. The focused person can be switched from the panel or from a dropdown selector.
 
 ---
 
 ## API Endpoints
 
 ### Persons
-- `GET /persons` - всички хора
-- `GET /persons/{id}` - един човек
-- `POST /persons` - добавяне
-- `PUT /persons/{id}` - редактиране
-- `DELETE /persons/{id}` - изтриване
-- `POST /persons/{id}/photo` - качване на снимка
+- `GET /persons` - Get all members
+- `GET /persons/{id}` - Get single profile details
+- `POST /persons` - Add new member
+- `PUT /persons/{id}` - Edit member details
+- `DELETE /persons/{id}` - Remove profile
+- `POST /persons/{id}/photo` - Upload profile image
 
 ### Relations
-- `GET /relations` - всички връзки
-- `POST /relations` - добавяне на връзка
-- `DELETE /relations/{id}` - изтриване на връзка
+- `GET /relations` - Get all relationship records
+- `POST /relations` - Create relationship
+- `DELETE /relations/{id}` - Remove relationship
 
 ### Graph
-- `GET /graph` - всички хора + връзки в един отговор (за D3)
+- `GET /graph` - Retrieve nodes and links simultaneously (optimized for D3.js consumption)
 
 ---
 
-## Фази на разработка
+## Development Phases
 
-### Фаза 1 - Основа
-- [ ] PostgreSQL схема
-- [ ] FastAPI CRUD endpoints
-- [ ] File upload за снимки
-- [ ] Angular проект + структура
+### Phase 1 - Foundation
+- [x] PostgreSQL Schema setup
+- [x] FastAPI CRUD endpoints
+- [x] Local photo upload support
+- [x] Angular application structure
 
-### Фаза 2 - Визуализация
-- [ ] D3 canvas с балончета
-- [ ] Zoom и drag
-- [ ] Marriage nodes
-- [ ] Цветни линии по тип връзка
-- [ ] Фокусиран човек
+### Phase 2 - Visualization
+- [x] D3 canvas rendering with nodes
+- [x] Drag and zoom interactions
+- [x] Marriage node layouts
+- [x] Color-coded connection links
+- [x] Node focus states
 
-### Фаза 3 - Интерфейс
-- [ ] Страничен панел с информация
-- [ ] Форми за добавяне/редактиране
-- [ ] Легенда
-- [ ] Смяна на фокусиран човек
+### Phase 3 - User Interface
+- [x] Information details panel
+- [x] Add/Edit forms
+- [x] Legend overlay
+- [x] Focus switching controls
 
-### Фаза 4 - Deployment
-- [ ] Docker Compose конфигурация
-- [ ] Тест на Raspberry Pi
+### Phase 4 - Deployment
+- [x] Docker Compose stack configuration
+- [x] Raspberry Pi deployment verification
 
-### Фаза 5 - Бъдещи подобрения
-- [ ] Автоматично изчисляване на близки връзки (братовчед, леля и др.)
-- [ ] Търсене по име
-- [ ] Филтриране по поколение
-- [ ] Експорт на дървото
-- [ ] Подобрена мобилна навигация и UX
-
----
-
-## Mobile
-
-- **Desktop-first** подход, но мобилен поддържан от начало
-- Балончета с достатъчен размер за tap
-- Pinch-to-zoom с два пръста (D3 native поддръжка)
-- Страничен панел → bottom sheet на мобилен
-- Drag на canvas съвместим с touch events
-- Въвеждането на данни е оптимизирано за desktop, но достъпно и на мобилен
-- Мобилното изживяване ще се подобрява итеративно
+### Phase 5 - Future Backlog
+- [ ] Automated relative calculator (cousins, uncles, etc.)
+- [ ] Live search filtering
+- [ ] Generation filters
+- [ ] PDF printing exports
+- [ ] Enhanced mobile user experience
 
 ---
 
-## Решения взети по време на планирането
+## Mobile Adaptation
 
-- **Без логин** - фокусираният човек се избира от интерфейса, не чрез автентикация
-- **Само 3 базови типа връзки** - производните се изчисляват алгоритмично
-- **D3 вместо React Flow** - за правилни marriage nodes и пълен контрол върху layout
-- **Angular вместо React** - разработчикът има опит с Angular
-- **Пълен граф вместо ego network** - zoom out показва цялата структура
+- Mobile support planned from inception using a desktop-first approach.
+- Node elements sized to accommodate touch interactions.
+- Native multi-touch pinch-to-zoom (leveraging D3 zoom gestures).
+- Detail panel switches to a slide-up bottom sheet on smaller devices.
+- Desktop forms accessible on mobile with responsive wrapping.
+
+---
+
+## Key Decisions
+
+- **Sessionless Tree**: The focused root person is chosen in the UI rather than derived from an authentication state.
+- **Minimal Relationship Seeds**: Only 3 core database relations; others computed algorithmically.
+- **D3.js Selection**: Selected over standard layout frameworks (like React Flow) to implement custom marriage junctions and layouts.
+- **Angular framework**: Selected based on developer expertise.
+- **Full Viewport Canvas**: Visualizes the entire genealogical network at once rather than ego-centric local branches.

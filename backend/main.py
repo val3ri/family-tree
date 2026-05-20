@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from sqlalchemy import inspect, text
 from models.database import Base, engine
-from routes import persons, relations, graph
+from routes import persons, relations, graph, backup
 from config import settings
 
 Base.metadata.create_all(bind=engine)
@@ -59,6 +59,7 @@ app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")
 app.include_router(persons.router)
 app.include_router(relations.router)
 app.include_router(graph.router)
+app.include_router(backup.router)
 
 
 @app.get("/health")
